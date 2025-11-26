@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>产品SVG生成器</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>产品SVG生成器</h1>
+            <p class="subtitle">智能图像分析与SVG矢量图生成工具</p>
+        </header>
+        
+        <div class="comparison-area">
+            <div class="image-container">
+                <h2 class="section-title">原始图片</h2>
+                <div class="svg-container" id="original-container">
+                    <img src="{{ url_for('static', filename='images/apple_remote_original.jpg') }}" alt="Original Image" id="original-image">
+                </div>
+            </div>
+            
+            <div class="image-container">
+                <h2 class="section-title">生成的SVG</h2>
+                <div class="svg-container" id="svg-container">
+                    <!-- Generated SVG will be displayed here -->
+                </div>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <div class="button-group">
+                <button id="generate-btn" class="btn">智能生成</button>
+                <button id="outline-btn" class="btn btn-outline">标出轮廓</button>
+                <button id="compare-btn" class="btn btn-outline">标记校验</button>
+            </div>
+        </div>
+        
+        <div class="debug-info">
+            <h2>调试信息</h2>
+            <div id="debug-content">
+                <!-- Debug information will be displayed here -->
+            </div>
+        </div>
+        
+        <footer>
+            <p>Auto SVG Generator &copy; 2025 | 智能图像分析工具</p>
+        </footer>
+    </div>
+    
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>

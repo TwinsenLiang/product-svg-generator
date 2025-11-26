@@ -1,0 +1,257 @@
+/*
+CSS Styles for Auto SVG Generator
+*/
+:root {
+    --primary-color: #4361ee;
+    --secondary-color: #3f37c9;
+    --accent-color: #4895ef;
+    --success-color: #4cc9f0;
+    --light-color: #f8f9fa;
+    --dark-color: #212529;
+    --border-color: #dee2e6;
+    --shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    --transition: all 0.3s ease;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    margin: 0;
+    padding: 20px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    color: var(--dark-color);
+}
+
+.container {
+    max-width: 1400px;
+    margin: 0 auto;
+    background-color: white;
+    padding: 30px;
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+}
+
+header {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+h1 {
+    color: var(--primary-color);
+    font-size: 2.5rem;
+    margin-bottom: 10px;
+    font-weight: 700;
+}
+
+.subtitle {
+    color: #6c757d;
+    font-size: 1.1rem;
+    margin-bottom: 20px;
+}
+
+.comparison-area {
+    display: flex;
+    gap: 30px;
+    margin-bottom: 40px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.image-container {
+    flex: 1;
+    min-width: 300px;
+    max-width: 500px;
+}
+
+.section-title {
+    color: var(--secondary-color);
+    font-size: 1.4rem;
+    margin-bottom: 15px;
+    text-align: center;
+    font-weight: 600;
+}
+
+.svg-container {
+    border: 2px solid var(--border-color);
+    border-radius: 10px;
+    padding: 15px;
+    width: 100%;
+    height: 500px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    overflow: hidden;
+    position: relative;
+}
+
+#original-image {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    border-radius: 5px;
+}
+
+.controls {
+    text-align: center;
+    margin-bottom: 40px;
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+}
+
+.button-group {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 15px;
+}
+
+.btn {
+    background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+    color: white;
+    border: none;
+    padding: 15px 30px;
+    margin: 0 10px;
+    border-radius: 50px;
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: 600;
+    box-shadow: var(--shadow);
+    min-width: 150px;
+}
+
+
+.btn:active {
+    transform: translateY(0);
+}
+
+.btn-outline {
+    background: transparent;
+    border: 2px solid var(--primary-color);
+    color: var(--primary-color);
+}
+
+.btn-outline:hover {
+    background: var(--primary-color);
+    color: white;
+}
+
+.debug-info {
+    border: 2px solid var(--border-color);
+    border-radius: 10px;
+    padding: 25px;
+    background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+    box-shadow: var(--shadow);
+}
+
+.debug-info h2 {
+    color: var(--secondary-color);
+    margin-top: 0;
+    margin-bottom: 20px;
+    font-size: 1.5rem;
+    text-align: center;
+}
+
+#debug-content {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+#debug-content ul {
+    list-style-type: none;
+    padding: 0;
+}
+
+#debug-content li {
+    padding: 12px 15px;
+    background-color: white;
+}
+
+#debug-content li:hover {
+}
+
+#debug-content li:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+}
+
+#debug-content li strong {
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+.feature-list {
+    margin-left: 20px;
+}
+
+.feature-list li {
+    background-color: #f1f8ff;
+    border-left: 3px solid var(--accent-color);
+}
+
+footer {
+    text-align: center;
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border-color);
+    color: #6c757d;
+    font-size: 0.9rem;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .container {
+        padding: 20px;
+    }
+    
+    h1 {
+        font-size: 2rem;
+    }
+    
+    .comparison-area {
+        flex-direction: column;
+        align-items: center;
+    }
+    
+    .image-container {
+        width: 100%;
+        max-width: 100%;
+    }
+    
+    .button-group {
+        flex-direction: column;
+        align-items: center;
+    }
+    
+    .btn {
+        width: 100%;
+        max-width: 300px;
+        margin: 5px 0;
+    }
+}
+
+/* Scrollbar styling */
+#debug-content::-webkit-scrollbar {
+    width: 8px;
+}
+
+#debug-content::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 10px;
+}
+
+#debug-content::-webkit-scrollbar-thumb {
+    background: var(--accent-color);
+    border-radius: 10px;
+}
+
+#debug-content::-webkit-scrollbar-thumb:hover {
+    background: var(--primary-color);
+}

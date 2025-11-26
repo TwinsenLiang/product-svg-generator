@@ -1,0 +1,30 @@
+# Virtual environment
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+._*
+Thumbs.db
+
+# Logs
+*.log
+
+# Test outputs
+test_output*.jpg
+test_output*.svg
+
+# Server logs
+server.log
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class

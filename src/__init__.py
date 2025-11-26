@@ -1,0 +1,3 @@
+"""
+Auto SVG Generator Package
+"""

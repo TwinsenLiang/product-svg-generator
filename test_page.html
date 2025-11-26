@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auto SVG Generator - 测试页面</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        .test-area {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #fafafa;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            margin: 10px 5px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        #result {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #e9ecef;
+            border-radius: 4px;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Auto SVG Generator - 测试页面</h1>
+        
+        <div class="test-area">
+            <h2>功能测试</h2>
+            <button onclick="testGenerateSVG()">测试SVG生成</button>
+            <button onclick="testDetectOutline()">测试轮廓检测</button>
+            <button onclick="testWebsiteAccess()">测试网站访问</button>
+        </div>
+        
+        <div id="result"></div>
+    </div>
+    
+    <script>
+        function displayResult(message) {
+            document.getElementById('result').innerText = message;
+        }
+        
+        function testGenerateSVG() {
+            displayResult('正在测试SVG生成...');
+            fetch('http://localhost:8000/generate_svg', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    displayResult('SVG生成测试成功！\n\n调试信息:\n' + JSON.stringify(data.debug_info, null, 2));
+                } else {
+                    displayResult('SVG生成测试失败: ' + data.error);
+                }
+            })
+            .catch(error => {
+                displayResult('SVG生成测试出错: ' + error.message);
+            });
+        }
+        
+        function testDetectOutline() {
+            displayResult('正在测试轮廓检测...');
+            fetch('http://localhost:8000/detect_outline', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    displayResult('轮廓检测测试成功！\n\n检测到的轮廓点数: ' + data.contour.length + '\n检测到的特征数: ' + data.features.length);
+                } else {
+                    displayResult('轮廓检测测试失败: ' + data.error);
+                }
+            })
+            .catch(error => {
+                displayResult('轮廓检测测试出错: ' + error.message);
+            });
+        }
+        
+        function testWebsiteAccess() {
+            displayResult('正在测试网站访问...');
+            fetch('http://localhost:8000/')
+            .then(response => {
+                if (response.ok) {
+                    displayResult('网站访问测试成功！状态码: ' + response.status);
+                } else {
+                    displayResult('网站访问测试失败！状态码: ' + response.status);
+                }
+            })
+            .catch(error => {
+                displayResult('网站访问测试出错: ' + error.message);
+            });
+        }
+    </script>
+</body>
+</html>
