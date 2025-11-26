@@ -15,14 +15,17 @@
         
         <div class="comparison-area">
             <div class="image-container">
-                <h2 class="section-title">原始图片</h2>
+                <h2 class="section-title">产品原图</h2>
                 <div class="svg-container" id="original-container">
-                    <img src="{{ url_for('static', filename='images/apple_remote_original.jpg') }}" alt="Original Image" id="original-image">
+                    <svg width="100%" height="100%" viewBox="0 0 960 1280" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+                        <image href="{{ url_for('static', filename='images/apple_remote_original.jpg') }}" width="960" height="1280" />
+                        <!-- Detection contours will be overlaid here -->
+                    </svg>
                 </div>
             </div>
             
             <div class="image-container">
-                <h2 class="section-title">生成的SVG</h2>
+                <h2 class="section-title">产品SVG</h2>
                 <div class="svg-container" id="svg-container">
                     <!-- Generated SVG will be displayed here -->
                 </div>

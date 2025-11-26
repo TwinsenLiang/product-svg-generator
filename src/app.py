@@ -16,8 +16,8 @@ import numpy as np
 app = Flask(__name__, template_folder='../templates', static_folder='../static')
 app.config['JSON_AS_ASCII'] = False  # Support Chinese characters in JSON responses
 
-# Path to the test image
-IMAGE_PATH = "static/images/apple_remote_original.jpg"
+# Path to the test image (relative to project root)
+IMAGE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static", "images", "apple_remote_original.jpg")
 
 @app.route('/')
 def index():

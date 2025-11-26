@@ -10,8 +10,8 @@ from svg_generator import SVGGenerator
 import cv2
 
 def main():
-    # Path to the test image
-    image_path = "static/images/apple_remote_original.jpg"
+    # Path to the test image (relative to project root)
+    image_path = os.path.join(os.path.dirname(__file__), "static", "images", "apple_remote_original.jpg")
     
     # Initialize the image processor
     processor = ImageProcessor(image_path)
@@ -28,6 +28,9 @@ def main():
         main_contour = processor.detect_main_object()
         if main_contour is not None:
             print(f"Main object detected. Contour points: {len(main_contour)}")
+            # Print more details about the contour
+            x, y, w, h = cv2.boundingRect(main_contour)
+            print(f"Bounding rectangle: x={x}, y={y}, width={w}, height={h}")
             
             # Draw the contour on the image for visualization
             result_image = original_image.copy()
