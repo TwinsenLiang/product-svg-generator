@@ -52,7 +52,7 @@ class ImageProcessor:
         
         # Morphological operations to clean up the image
         # Use larger kernel for closing to fill gaps in the outline
-        kernel_close = cv2.getStructuringElement(cv2.MORPH_RECT, (9, 9))
+        kernel_close = cv2.getStructuringElement(cv2.MORPH_RECT, (11, 11))
         # Use smaller kernel for opening to remove small noise
         kernel_open = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
         morph = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel_close)
@@ -65,8 +65,8 @@ class ImageProcessor:
         valid_contours = []
         image_area = gray.shape[0] * gray.shape[1]
         # Adjust area requirements for better remote detection
-        min_area = image_area * 0.05  # Minimum 5% of image area
-        max_area = image_area * 0.8   # Maximum 80% of image area
+        min_area = image_area * 0.03  # Minimum 3% of image area (lowered)
+        max_area = image_area * 0.9   # Maximum 90% of image area (increased)
         
         print(f"Found {len(contours)} contours")
         
@@ -94,14 +94,14 @@ class ImageProcessor:
                 print(f"  Aspect ratio: {aspect_ratio:.2f}, Extent: {extent:.2f}, Convexity: {convexity:.2f}")
                 
                 # Remote controls are typically:
-                # 1. Rectangular shape with aspect ratio between 0.1 and 5.0
-                # 2. Solid shape with extent > 0.4
-                # 3. Convex or nearly convex shape with convexity > 0.8
+                # 1. Rectangular shape with aspect ratio between 0.1 and 6.0
+                # 2. Solid shape with extent > 0.3 (lowered to capture shadow areas)
+                # 3. Convex or nearly convex shape with convexity > 0.6 (lowered)
                 # 4. Large enough to be the main object
-                if (0.1 <= aspect_ratio <= 5.0 and 
-                    extent > 0.4 and 
-                    convexity > 0.7 and
-                    area > 5000):  # Minimum area for remote control
+                if (0.1 <= aspect_ratio <= 6.0 and 
+                    extent > 0.3 and 
+                    convexity > 0.6 and
+                    area > 3000):  # Minimum area lowered
                     valid_contours.append({
                         'contour': contour,
                         'area': area,
@@ -118,7 +118,7 @@ class ImageProcessor:
             # Ideal remote control: aspect ratio ~ 0.25 (vertical), extent ~ 0.8, convexity ~ 1.0
             for contour_info in valid_contours:
                 aspect_score = max(0, 1.0 - abs(contour_info['aspect_ratio'] - 0.25) / 0.25)  # Target 0.25
-                extent_score = max(0, 1.0 - abs(contour_info['extent'] - 0.8) / 0.8)  # Target 0.8
+                extent_score = max(0, 1.0 - abs(contour_info['extent'] - 0.7) / 0.7)  # Target 0.7 (lowered)
                 convexity_score = contour_info['convexity']  # Higher is better
                 # Weighted score: aspect ratio (30%), extent (30%), convexity (40%)
                 contour_info['score'] = (0.3 * aspect_score + 0.3 * extent_score + 0.4 * convexity_score)
@@ -129,18 +129,19 @@ class ImageProcessor:
             print(f"Selected contour with score: {valid_contours[0]['score']:.2f}")
             
             # Post-process the contour to make it more rectangular and remove noise
-            # Approximate the contour to reduce noise and make it more geometric
-            epsilon = 0.005 * cv2.arcLength(selected_contour, True)
+            # Use a more conservative approximation to preserve corner details
+            epsilon = 0.003 * cv2.arcLength(selected_contour, True)
             approximated_contour = cv2.approxPolyDP(selected_contour, epsilon, True)
             
-            # If the approximated contour is too simple, use the original
-            if len(approximated_contour) >= 4:
-                return approximated_contour
-            else:
-                return selected_contour
+            # If the approximated contour is too simple, use a less aggressive approximation
+            if len(approximated_contour) < 4:
+                epsilon = 0.001 * cv2.arcLength(selected_contour, True)
+                approximated_contour = cv2.approxPolyDP(selected_contour, epsilon, True)
+            
+            return approximated_contour if len(approximated_contour) >= 4 else selected_contour
         
         # Fallback: try Canny edge detection with adjusted parameters
-        edges = cv2.Canny(blurred, 30, 100)
+        edges = cv2.Canny(blurred, 20, 80)  # Even lower thresholds
         contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
         # Filter contours again with looser criteria
@@ -156,8 +157,8 @@ class ImageProcessor:
                 hull_area = cv2.contourArea(hull)
                 convexity = float(area) / hull_area if hull_area > 0 else 0
                 
-                # Looser criteria for fallback
-                if 0.1 <= aspect_ratio <= 6.0 and extent > 0.3 and convexity > 0.6:
+                # Even looser criteria for fallback
+                if 0.1 <= aspect_ratio <= 8.0 and extent > 0.2 and convexity > 0.5:
                     valid_contours.append({
                         'contour': contour,
                         'area': area,
@@ -171,7 +172,7 @@ class ImageProcessor:
             # Score fallback contours
             for contour_info in valid_contours:
                 aspect_score = max(0, 1.0 - abs(contour_info['aspect_ratio'] - 0.25) / 0.25)
-                extent_score = max(0, 1.0 - abs(contour_info['extent'] - 0.7) / 0.7)
+                extent_score = max(0, 1.0 - abs(contour_info['extent'] - 0.6) / 0.6)  # Target 0.6
                 convexity_score = contour_info['convexity']
                 contour_info['score'] = (0.3 * aspect_score + 0.3 * extent_score + 0.4 * convexity_score)
             
@@ -180,13 +181,14 @@ class ImageProcessor:
             print(f"Fallback: Selected contour with score: {valid_contours[0]['score']:.2f}")
             
             # Post-process the fallback contour
-            epsilon = 0.005 * cv2.arcLength(selected_contour, True)
+            epsilon = 0.003 * cv2.arcLength(selected_contour, True)
             approximated_contour = cv2.approxPolyDP(selected_contour, epsilon, True)
             
-            if len(approximated_contour) >= 4:
-                return approximated_contour
-            else:
-                return selected_contour
+            if len(approximated_contour) < 4:
+                epsilon = 0.001 * cv2.arcLength(selected_contour, True)
+                approximated_contour = cv2.approxPolyDP(selected_contour, epsilon, True)
+            
+            return approximated_contour if len(approximated_contour) >= 4 else selected_contour
         
         print("No suitable contour found")
         return None
