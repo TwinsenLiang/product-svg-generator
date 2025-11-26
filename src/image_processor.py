@@ -29,9 +29,10 @@ class ImageProcessor:
         self.processed_image = self.original_image.copy()
         return self.original_image
     
-    def detect_main_object(self):
+    def detect_main_object(self, padding=10):
         """
         Detect the main object in the image using improved contour detection
+        Returns the contour and padded bounding rectangle for better visualization
         """
         if self.original_image is None:
             self.load_image()
@@ -126,7 +127,25 @@ class ImageProcessor:
             # Sort by score (highest first)
             valid_contours.sort(key=lambda x: x['score'], reverse=True)
             selected_contour = valid_contours[0]['contour']
+            original_x, original_y, original_w, original_h = valid_contours[0]['bounding_rect']
+            
+            # Apply padding to the bounding rectangle
+            img_height, img_width = self.original_image.shape[:2]
+            padded_x = max(0, original_x - padding)
+            padded_y = max(0, original_y - padding)
+            padded_w = min(img_width - padded_x, original_w + 2 * padding)
+            padded_h = min(img_height - padded_y, original_h + 2 * padding)
+            
+            # Store both original and padded rectangles
+            result_info = {
+                'contour': selected_contour,
+                'original_rect': (original_x, original_y, original_w, original_h),
+                'padded_rect': (padded_x, padded_y, padded_w, padded_h)
+            }
+            
             print(f"Selected contour with score: {valid_contours[0]['score']:.2f}")
+            print(f"Original rect: ({original_x}, {original_y}, {original_w}, {original_h})")
+            print(f"Padded rect: ({padded_x}, {padded_y}, {padded_w}, {padded_h})")
             
             # Post-process the contour to make it more rectangular and remove noise
             # Use a more conservative approximation to preserve corner details
@@ -138,7 +157,8 @@ class ImageProcessor:
                 epsilon = 0.001 * cv2.arcLength(selected_contour, True)
                 approximated_contour = cv2.approxPolyDP(selected_contour, epsilon, True)
             
-            return approximated_contour if len(approximated_contour) >= 4 else selected_contour
+            result_info['contour'] = approximated_contour if len(approximated_contour) >= 4 else selected_contour
+            return result_info
         
         # Fallback: try Canny edge detection with adjusted parameters
         edges = cv2.Canny(blurred, 20, 80)  # Even lower thresholds
@@ -178,7 +198,25 @@ class ImageProcessor:
             
             valid_contours.sort(key=lambda x: x['score'], reverse=True)
             selected_contour = valid_contours[0]['contour']
+            original_x, original_y, original_w, original_h = valid_contours[0]['bounding_rect']
+            
+            # Apply padding to the bounding rectangle
+            img_height, img_width = self.original_image.shape[:2]
+            padded_x = max(0, original_x - padding)
+            padded_y = max(0, original_y - padding)
+            padded_w = min(img_width - padded_x, original_w + 2 * padding)
+            padded_h = min(img_height - padded_y, original_h + 2 * padding)
+            
+            # Store both original and padded rectangles
+            result_info = {
+                'contour': selected_contour,
+                'original_rect': (original_x, original_y, original_w, original_h),
+                'padded_rect': (padded_x, padded_y, padded_w, padded_h)
+            }
+            
             print(f"Fallback: Selected contour with score: {valid_contours[0]['score']:.2f}")
+            print(f"Original rect: ({original_x}, {original_y}, {original_w}, {original_h})")
+            print(f"Padded rect: ({padded_x}, {padded_y}, {padded_w}, {padded_h})")
             
             # Post-process the fallback contour
             epsilon = 0.003 * cv2.arcLength(selected_contour, True)
@@ -188,7 +226,8 @@ class ImageProcessor:
                 epsilon = 0.001 * cv2.arcLength(selected_contour, True)
                 approximated_contour = cv2.approxPolyDP(selected_contour, epsilon, True)
             
-            return approximated_contour if len(approximated_contour) >= 4 else selected_contour
+            result_info['contour'] = approximated_contour if len(approximated_contour) >= 4 else selected_contour
+            return result_info
         
         print("No suitable contour found")
         return None

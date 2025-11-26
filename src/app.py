@@ -36,14 +36,18 @@ def generate_svg():
         original_image = processor.load_image()
         height, width = original_image.shape[:2]
         
-        # Detect the main object
-        main_contour = processor.detect_main_object()
+        # Detect the main object with padding
+        detection_result = processor.detect_main_object(padding=10)
+        
+        # Extract contour and padded rectangle
+        main_contour = detection_result['contour'] if detection_result else None
+        padded_rect = detection_result['padded_rect'] if detection_result else None
         
         # Detect features
         features = processor.detect_features()
         
         # Generate SVG
-        svg_content = svg_generator.generate_svg(width, height, main_contour, features)
+        svg_content = svg_generator.generate_svg(width, height, main_contour, features, padded_rect)
         
         # Prepare debug information
         debug_info = {
@@ -82,11 +86,13 @@ def detect_outline():
         # Load the image
         original_image = processor.load_image()
         
-        # Detect the main object
-        main_contour = processor.detect_main_object()
+        # Detect the main object with padding
+        detection_result = processor.detect_main_object(padding=10)
         
-        # Detect features
-        features = processor.detect_features()
+        # Extract contour and rectangles
+        main_contour = detection_result['contour'] if detection_result else None
+        original_rect = detection_result['original_rect'] if detection_result else None
+        padded_rect = detection_result['padded_rect'] if detection_result else None
         
         # Convert contour points to a serializable format
         contour_points = []
@@ -131,6 +137,47 @@ def detect_outline():
             "features": feature_boxes,
             "debug_info": debug_info
         })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        })
+
+@app.route('/upload_debug_image', methods=['POST'])
+def upload_debug_image():
+    """Handle debug image uploads"""
+    try:
+        if 'image' not in request.files:
+            return jsonify({
+                "success": False,
+                "error": "没有选择图片文件"
+            })
+        
+        file = request.files['image']
+        
+        if file.filename == '':
+            return jsonify({
+                "success": False,
+                "error": "没有选择图片文件"
+            })
+        
+        if file:
+            # Create uploads directory if it doesn't exist
+            uploads_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static", "uploads")
+            if not os.path.exists(uploads_dir):
+                os.makedirs(uploads_dir)
+            
+            # Save the file with timestamp
+            import time
+            timestamp = int(time.time())
+            filename = f"debug_upload_{timestamp}.jpg"
+            file_path = os.path.join(uploads_dir, filename)
+            file.save(file_path)
+            
+            return jsonify({
+                "success": True,
+                "path": f"static/uploads/{filename}"
+            })
     except Exception as e:
         return jsonify({
             "success": False,
