@@ -39,11 +39,11 @@ class ImageProcessor:
         # Convert to grayscale
         gray = cv2.cvtColor(self.original_image, cv2.COLOR_BGR2GRAY)
         
-        # Apply Gaussian blur to reduce noise
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        # Apply Gaussian blur to reduce noise but preserve edges
+        blurred = cv2.GaussianBlur(gray, (3, 3), 0)
         
-        # Use Otsu's thresholding for better binary separation
-        _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        # Use adaptive thresholding for better local contrast handling
+        thresh = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
         
         # Invert the image if the background is darker than the object
         # This helps if the remote is dark against a light background
@@ -51,8 +51,10 @@ class ImageProcessor:
             thresh = cv2.bitwise_not(thresh)
         
         # Morphological operations to clean up the image
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+        # Use smaller kernel to preserve details
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
         morph = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
+        # Reduce opening operation to preserve small details like shadows
         morph = cv2.morphologyEx(morph, cv2.MORPH_OPEN, kernel)
         
         # Find contours
@@ -61,8 +63,9 @@ class ImageProcessor:
         # Filter contours based on area and shape to find the main object
         valid_contours = []
         image_area = gray.shape[0] * gray.shape[1]
-        min_area = image_area * 0.05  # Minimum 5% of image area
-        max_area = image_area * 0.8  # Maximum 80% of image area
+        # Reduce minimum area requirement to capture more details
+        min_area = image_area * 0.03  # Minimum 3% of image area
+        max_area = image_area * 0.9  # Maximum 90% of image area
         
         print(f"Found {len(contours)} contours")
         
@@ -84,11 +87,10 @@ class ImageProcessor:
                 print(f"  Bounding rect: x={x}, y={y}, w={w}, h={h}")
                 print(f"  Aspect ratio: {aspect_ratio:.2f}, Extent: {extent:.2f}")
                 
-                # Check if this looks like a remote control
+                # Loosen the criteria to capture shadow areas
                 # Remote controls can be either horizontal or vertical
-                # and should have a solid shape (extent > 0.5)
-                # We'll accept aspect ratios between 0.2 and 5.0
-                if 0.2 <= aspect_ratio <= 5.0 and extent > 0.5:
+                # Accept a wider range of extents to include shadow details
+                if 0.1 <= aspect_ratio <= 6.0 and extent > 0.3:
                     valid_contours.append({
                         'contour': contour,
                         'area': area,
@@ -105,11 +107,11 @@ class ImageProcessor:
             print(f"Selected contour with area: {valid_contours[0]['area']}")
             return valid_contours[0]['contour']
         
-        # Fallback: try Canny edge detection
-        edges = cv2.Canny(blurred, 50, 150)
+        # Fallback: try Canny edge detection with lower thresholds
+        edges = cv2.Canny(blurred, 30, 100)  # Lower thresholds to capture more edges
         contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
-        # Filter contours again
+        # Filter contours again with even looser criteria
         valid_contours = []
         for contour in contours:
             area = cv2.contourArea(contour)
@@ -119,7 +121,8 @@ class ImageProcessor:
                 rect_area = w * h
                 extent = float(area) / rect_area
                 
-                if 0.2 <= aspect_ratio <= 5.0 and extent > 0.3:
+                # Even looser criteria for fallback
+                if 0.1 <= aspect_ratio <= 8.0 and extent > 0.2:
                     valid_contours.append({
                         'contour': contour,
                         'area': area,
