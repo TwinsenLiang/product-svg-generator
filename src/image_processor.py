@@ -39,11 +39,11 @@ class ImageProcessor:
         # Convert to grayscale
         gray = cv2.cvtColor(self.original_image, cv2.COLOR_BGR2GRAY)
         
-        # Apply Gaussian blur to reduce noise but preserve edges
+        # Apply Gaussian blur to reduce noise while preserving edges
         blurred = cv2.GaussianBlur(gray, (3, 3), 0)
         
-        # Use adaptive thresholding for better local contrast handling
-        thresh = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+        # Use Otsu's thresholding for better binary separation
+        _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         
         # Invert the image if the background is darker than the object
         # This helps if the remote is dark against a light background
@@ -51,11 +51,12 @@ class ImageProcessor:
             thresh = cv2.bitwise_not(thresh)
         
         # Morphological operations to clean up the image
-        # Use smaller kernel to preserve details
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-        morph = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
-        # Reduce opening operation to preserve small details like shadows
-        morph = cv2.morphologyEx(morph, cv2.MORPH_OPEN, kernel)
+        # Use larger kernel for closing to fill gaps in the outline
+        kernel_close = cv2.getStructuringElement(cv2.MORPH_RECT, (9, 9))
+        # Use smaller kernel for opening to remove small noise
+        kernel_open = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        morph = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel_close)
+        morph = cv2.morphologyEx(morph, cv2.MORPH_OPEN, kernel_open)
         
         # Find contours
         contours, _ = cv2.findContours(morph, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -63,9 +64,9 @@ class ImageProcessor:
         # Filter contours based on area and shape to find the main object
         valid_contours = []
         image_area = gray.shape[0] * gray.shape[1]
-        # Reduce minimum area requirement to capture more details
-        min_area = image_area * 0.03  # Minimum 3% of image area
-        max_area = image_area * 0.9  # Maximum 90% of image area
+        # Adjust area requirements for better remote detection
+        min_area = image_area * 0.05  # Minimum 5% of image area
+        max_area = image_area * 0.8   # Maximum 80% of image area
         
         print(f"Found {len(contours)} contours")
         
@@ -84,34 +85,65 @@ class ImageProcessor:
                 rect_area = w * h
                 extent = float(area) / rect_area
                 
-                print(f"  Bounding rect: x={x}, y={y}, w={w}, h={h}")
-                print(f"  Aspect ratio: {aspect_ratio:.2f}, Extent: {extent:.2f}")
+                # Calculate convex hull ratio (how close to convex shape)
+                hull = cv2.convexHull(contour)
+                hull_area = cv2.contourArea(hull)
+                convexity = float(area) / hull_area if hull_area > 0 else 0
                 
-                # Loosen the criteria to capture shadow areas
-                # Remote controls can be either horizontal or vertical
-                # Accept a wider range of extents to include shadow details
-                if 0.1 <= aspect_ratio <= 6.0 and extent > 0.3:
+                print(f"  Bounding rect: x={x}, y={y}, w={w}, h={h}")
+                print(f"  Aspect ratio: {aspect_ratio:.2f}, Extent: {extent:.2f}, Convexity: {convexity:.2f}")
+                
+                # Remote controls are typically:
+                # 1. Rectangular shape with aspect ratio between 0.1 and 5.0
+                # 2. Solid shape with extent > 0.4
+                # 3. Convex or nearly convex shape with convexity > 0.8
+                # 4. Large enough to be the main object
+                if (0.1 <= aspect_ratio <= 5.0 and 
+                    extent > 0.4 and 
+                    convexity > 0.7 and
+                    area > 5000):  # Minimum area for remote control
                     valid_contours.append({
                         'contour': contour,
                         'area': area,
                         'aspect_ratio': aspect_ratio,
                         'extent': extent,
+                        'convexity': convexity,
                         'bounding_rect': (x, y, w, h)
                     })
                     print(f"  Added to valid contours")
         
         # Return the contour that best matches a remote control
         if len(valid_contours) > 0:
-            # Sort by area (largest first) as a simple heuristic
-            valid_contours.sort(key=lambda x: x['area'], reverse=True)
-            print(f"Selected contour with area: {valid_contours[0]['area']}")
-            return valid_contours[0]['contour']
+            # Score contours based on how well they match a remote control
+            # Ideal remote control: aspect ratio ~ 0.25 (vertical), extent ~ 0.8, convexity ~ 1.0
+            for contour_info in valid_contours:
+                aspect_score = max(0, 1.0 - abs(contour_info['aspect_ratio'] - 0.25) / 0.25)  # Target 0.25
+                extent_score = max(0, 1.0 - abs(contour_info['extent'] - 0.8) / 0.8)  # Target 0.8
+                convexity_score = contour_info['convexity']  # Higher is better
+                # Weighted score: aspect ratio (30%), extent (30%), convexity (40%)
+                contour_info['score'] = (0.3 * aspect_score + 0.3 * extent_score + 0.4 * convexity_score)
+            
+            # Sort by score (highest first)
+            valid_contours.sort(key=lambda x: x['score'], reverse=True)
+            selected_contour = valid_contours[0]['contour']
+            print(f"Selected contour with score: {valid_contours[0]['score']:.2f}")
+            
+            # Post-process the contour to make it more rectangular and remove noise
+            # Approximate the contour to reduce noise and make it more geometric
+            epsilon = 0.005 * cv2.arcLength(selected_contour, True)
+            approximated_contour = cv2.approxPolyDP(selected_contour, epsilon, True)
+            
+            # If the approximated contour is too simple, use the original
+            if len(approximated_contour) >= 4:
+                return approximated_contour
+            else:
+                return selected_contour
         
-        # Fallback: try Canny edge detection with lower thresholds
-        edges = cv2.Canny(blurred, 30, 100)  # Lower thresholds to capture more edges
+        # Fallback: try Canny edge detection with adjusted parameters
+        edges = cv2.Canny(blurred, 30, 100)
         contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
-        # Filter contours again with even looser criteria
+        # Filter contours again with looser criteria
         valid_contours = []
         for contour in contours:
             area = cv2.contourArea(contour)
@@ -119,22 +151,42 @@ class ImageProcessor:
                 x, y, w, h = cv2.boundingRect(contour)
                 aspect_ratio = float(w) / h
                 rect_area = w * h
-                extent = float(area) / rect_area
+                extent = float(area) / rect_area if rect_area > 0 else 0
+                hull = cv2.convexHull(contour)
+                hull_area = cv2.contourArea(hull)
+                convexity = float(area) / hull_area if hull_area > 0 else 0
                 
-                # Even looser criteria for fallback
-                if 0.1 <= aspect_ratio <= 8.0 and extent > 0.2:
+                # Looser criteria for fallback
+                if 0.1 <= aspect_ratio <= 6.0 and extent > 0.3 and convexity > 0.6:
                     valid_contours.append({
                         'contour': contour,
                         'area': area,
                         'aspect_ratio': aspect_ratio,
                         'extent': extent,
+                        'convexity': convexity,
                         'bounding_rect': (x, y, w, h)
                     })
         
         if len(valid_contours) > 0:
-            valid_contours.sort(key=lambda x: x['area'], reverse=True)
-            print(f"Fallback: Selected contour with area: {valid_contours[0]['area']}")
-            return valid_contours[0]['contour']
+            # Score fallback contours
+            for contour_info in valid_contours:
+                aspect_score = max(0, 1.0 - abs(contour_info['aspect_ratio'] - 0.25) / 0.25)
+                extent_score = max(0, 1.0 - abs(contour_info['extent'] - 0.7) / 0.7)
+                convexity_score = contour_info['convexity']
+                contour_info['score'] = (0.3 * aspect_score + 0.3 * extent_score + 0.4 * convexity_score)
+            
+            valid_contours.sort(key=lambda x: x['score'], reverse=True)
+            selected_contour = valid_contours[0]['contour']
+            print(f"Fallback: Selected contour with score: {valid_contours[0]['score']:.2f}")
+            
+            # Post-process the fallback contour
+            epsilon = 0.005 * cv2.arcLength(selected_contour, True)
+            approximated_contour = cv2.approxPolyDP(selected_contour, epsilon, True)
+            
+            if len(approximated_contour) >= 4:
+                return approximated_contour
+            else:
+                return selected_contour
         
         print("No suitable contour found")
         return None
