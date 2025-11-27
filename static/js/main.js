@@ -2,11 +2,18 @@ document.addEventListener('DOMContentLoaded', function() {
     const generateBtn = document.getElementById('generate-btn');
     const outlineBtn = document.getElementById('outline-btn');
     const compareBtn = document.getElementById('compare-btn');
+    const exportSvgBtn = document.getElementById('export-svg-btn');
     const svgContainer = document.getElementById('svg-container');
     const debugContent = document.getElementById('debug-content');
-    
+
+    // 调试：检查按钮是否存在
+    console.log('[初始化] exportSvgBtn:', exportSvgBtn);
+
     // State for outline toggle
     let isOutlineVisible = false;
+
+    // 存储生成的SVG内容
+    let generatedSvgContent = null;
     
     // Add loading indicator
     function showLoading() {
@@ -211,6 +218,9 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
+                // 保存SVG内容供导出使用
+                generatedSvgContent = data.svg;
+
                 // Display the generated SVG with fixed size
                 const svgWrapper = document.createElement('div');
                 svgWrapper.style.width = '100%';
@@ -235,18 +245,60 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 svgContainer.innerHTML = '';
                 svgContainer.appendChild(svgWrapper);
-                
+
+                // 显示导出按钮（添加安全检查）
+                if (exportSvgBtn) {
+                    console.log('[SVG生成成功] 显示导出按钮');
+                    exportSvgBtn.style.display = 'inline-block';
+                } else {
+                    console.error('[SVG生成成功] 导出按钮不存在！');
+                }
+
                 // Display debug information
                 displayDebugInfo(data.debug_info);
             } else {
                 debugContent.innerHTML = `<p style="color: #dc3545; text-align: center;">错误: ${data.error}</p>`;
+                // 隐藏导出按钮（添加安全检查）
+                if (exportSvgBtn) {
+                    exportSvgBtn.style.display = 'none';
+                }
             }
         })
         .catch(error => {
             debugContent.innerHTML = `<p style="color: #dc3545; text-align: center;">错误: ${error.message}</p>`;
         });
     });
-    
+
+    // 导出SVG功能
+    if (exportSvgBtn) {
+        exportSvgBtn.addEventListener('click', function() {
+            if (!generatedSvgContent) {
+                alert('请先生成SVG');
+                return;
+            }
+
+            // 创建Blob对象
+            const blob = new Blob([generatedSvgContent], { type: 'image/svg+xml' });
+            const url = URL.createObjectURL(blob);
+
+            // 创建下载链接
+            const link = document.createElement('a');
+            link.href = url;
+            const timestamp = new Date().getTime();
+            link.download = `product_${timestamp}.svg`;
+
+            // 触发下载
+            document.body.appendChild(link);
+            link.click();
+
+            // 清理
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+
+            console.log('SVG已导出');
+        });
+    }
+
     // Detect outline - Toggle mode
     outlineBtn.addEventListener('click', function() {
         if (isOutlineVisible) {
