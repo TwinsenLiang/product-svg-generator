@@ -406,8 +406,8 @@ class ImageProcessor:
         for i, contour in enumerate(contours):
             area = cv2.contourArea(contour)
 
-            # 过滤太小的噪点
-            if area < 100:
+            # 过滤太小的噪点（降低阈值以检测小圆点）
+            if area < 10:
                 continue
 
             x, y, w, h = cv2.boundingRect(contour)
@@ -430,9 +430,9 @@ class ImageProcessor:
             M = cv2.moments(contour)
             cy = int(M['m01'] / M['m00']) if M['m00'] != 0 else y + h // 2
 
-            # 🔍 调试：打印所有大面积轮廓特征（迭代2诊断 - 降低阈值到2000）
-            if area > 2000:
-                print(f"[大轮廓] 面积={int(area)}, 位置=({x},{y},{w},{h}), "
+            # 🔍 调试：打印所有轮廓特征（降低阈值到100以便检测小点）
+            if area > 100:
+                print(f"[轮廓] 面积={int(area)}, 位置=({x},{y},{w},{h}), "
                       f"圆度={circularity:.2f}, 凸度={convexity:.2f}, "
                       f"宽高比={aspect_ratio:.2f}, center_y={cy}", flush=True)
 
@@ -456,25 +456,32 @@ class ImageProcessor:
             all_contours[0]['type'] = 'body'
             print(f"[轮廓分类] 主体: 面积={all_contours[0]['area']}, 位置={all_contours[0]['bounding_box']}", flush=True)
 
-        # 2. 局部区域：圆形检测
+        # 2. 局部区域：圆形检测（支持大圆、中圆、小圆点）
         circular_regions = []
+        small_dots = []  # 小圆点（面积 < 500）
+
         for c in all_contours[1:]:  # 跳过主体
-            # 圆形判断条件（迭代1优化）：
+            # 圆形判断条件：
             # - 宽高比接近1 (0.6-1.4)
-            # - 圆度适中 (>0.4，降低要求)
-            # - 凸度高 (>0.75，降低要求)
-            # - 面积足够大 (>2000，提高阈值过滤小噪点)
+            # - 圆度适中 (>0.4)
+            # - 凸度高 (>0.75)
             is_circular = (
                 0.6 <= c['aspect_ratio'] <= 1.4 and
                 c['circularity'] > 0.4 and
-                c['convexity'] > 0.75 and
-                c['area'] > 2000
+                c['convexity'] > 0.75
             )
 
             if is_circular:
-                circular_regions.append(c)
-                print(f"[圆形检测] 面积={c['area']}, 位置={c['bounding_box']}, "
-                      f"圆度={c['circularity']:.2f}, 宽高比={c['aspect_ratio']:.2f}", flush=True)
+                # 区分小圆点和大/中圆形
+                if c['area'] < 500:
+                    small_dots.append(c)
+                    c['type'] = 'small_dot'
+                    print(f"[小圆点检测] 面积={c['area']}, 位置={c['bounding_box']}, "
+                          f"圆度={c['circularity']:.2f}", flush=True)
+                else:
+                    circular_regions.append(c)
+                    print(f"[圆形检测] 面积={c['area']}, 位置={c['bounding_box']}, "
+                          f"圆度={c['circularity']:.2f}, 宽高比={c['aspect_ratio']:.2f}", flush=True)
 
         # 3. 分类圆形区域（基于面积和位置）
         if len(circular_regions) > 0:
@@ -483,7 +490,45 @@ class ImageProcessor:
 
             # 最大的圆形 = 圆形控制区
             circular_regions[0]['type'] = 'circle_control'
-            print(f"[轮廓分类] 圆形控制区: 面积={circular_regions[0]['area']}, 位置={circular_regions[0]['bounding_box']}", flush=True)
+            circle_control_bbox = circular_regions[0]['bounding_box']
+            circle_x, circle_y, circle_w, circle_h = circle_control_bbox
+            circle_center_x = circle_x + circle_w // 2
+            circle_center_y = circle_y + circle_h // 2
+            circle_radius = max(circle_w, circle_h) // 2
+
+            print(f"[轮廓分类] 圆形控制区: 面积={circular_regions[0]['area']}, 位置={circle_control_bbox}, "
+                  f"中心=({circle_center_x},{circle_center_y}), 半径={circle_radius}", flush=True)
+
+            # 过滤小圆点：只保留在圆形控制区附近的（距离 < 半径*1.2 且不在主体最外边缘）
+            # 获取主体边界用于边缘检测
+            body_bbox = all_contours[0]['bounding_box']
+            body_x, body_y, body_w, body_h = body_bbox
+            edge_threshold = 15  # 距离主体边缘15px以内认为是边缘噪点（减小阈值）
+
+            valid_small_dots = []
+            for dot in small_dots:
+                dot_x, dot_y, dot_w, dot_h = dot['bounding_box']
+                dot_center_x = dot_x + dot_w // 2
+                dot_center_y = dot_y + dot_h // 2
+
+                # 计算点到圆心的距离
+                distance = ((dot_center_x - circle_center_x) ** 2 +
+                           (dot_center_y - circle_center_y) ** 2) ** 0.5
+
+                # 检查是否在主体最外边缘（只检查左右边缘，因为上下边缘可能有有效点）
+                is_near_edge = (
+                    dot_center_x < body_x + edge_threshold or  # 左边缘
+                    dot_center_x > body_x + body_w - edge_threshold  # 右边缘
+                )
+
+                # 保留条件：距离圆心近 且 不在边缘
+                if distance < circle_radius * 1.2 and not is_near_edge:
+                    valid_small_dots.append(dot)
+                    print(f"[小圆点保留] 位置={dot['bounding_box']}, 距圆心={distance:.0f}px", flush=True)
+                else:
+                    dot['type'] = 'unknown'  # 标记为噪点
+                    reason = "在边缘" if is_near_edge else f"距圆心{distance:.0f}px"
+                    print(f"[小圆点过滤] 位置={dot['bounding_box']}, {reason} (噪点)", flush=True)
 
             # 剩余的圆形按从上到下排序 = 按钮
             buttons = circular_regions[1:]
@@ -493,7 +538,7 @@ class ImageProcessor:
                 btn['type'] = 'button'
                 print(f"[轮廓分类] 按钮#{idx+1}: 面积={btn['area']}, 位置={btn['bounding_box']}", flush=True)
 
-        # 过滤掉未分类的轮廓
+        # 过滤掉未分类的轮廓（包括噪点）
         all_contours = [c for c in all_contours if c['type'] != 'unknown']
 
         print(f"[轮廓检测] 最终分类: {len(all_contours)} 个有效轮廓", flush=True)

@@ -113,9 +113,14 @@ def generate_svg():
 
         # 2. 对每个轮廓提取颜色
         for i, contour_info in enumerate(all_contours_original):
-            color = color_extractor.extract_contour_color(processor.original_image, contour_info)
+            # 对圆形控制区使用环形采样，提取外圈颜色
+            sample_ring = (contour_info['type'] == 'circle_control')
+            color = color_extractor.extract_contour_color(
+                processor.original_image, contour_info, sample_ring=sample_ring
+            )
             contour_info['color'] = color
-            print(f"[SVG生成] 轮廓#{i+1} ({contour_info['type']}): #{color['hex']}", flush=True)
+            print(f"[SVG生成] 轮廓#{i+1} ({contour_info['type']}): #{color['hex']}" +
+                  (f" (环形采样)" if sample_ring else ""), flush=True)
 
         # 3. 获取裁剪坐标（用于SVG viewBox）
         padding = IMAGE_PROCESSING['default_padding']
@@ -176,6 +181,13 @@ def generate_svg():
                 )
             elif contour_type == 'circle_control':
                 # 圆形控制区：使用圆形
+                cx, cy = x + w // 2, y + h // 2
+                r = min(w, h) // 2
+                svg_shapes.append(
+                    f'  <circle cx="{cx}" cy="{cy}" r="{r}" fill="#{color_hex}" />'
+                )
+            elif contour_type == 'small_dot':
+                # 小圆点：使用小圆形
                 cx, cy = x + w // 2, y + h // 2
                 r = min(w, h) // 2
                 svg_shapes.append(
@@ -458,6 +470,12 @@ def upload_product_image():
     """处理产品图片上传"""
     global CURRENT_IMAGE_PATH
 
+    # 允许的文件扩展名
+    ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png'}
+
+    def allowed_file(filename):
+        return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
     try:
         if 'image' not in request.files:
             return jsonify({
@@ -473,10 +491,17 @@ def upload_product_image():
                 "error": "没有选择图片文件"
             })
 
+        # 验证文件类型
+        if not allowed_file(file.filename):
+            return jsonify({
+                "success": False,
+                "error": "不支持的文件格式，仅支持 JPG、JPEG、PNG 格式"
+            })
+
         if file:
             # 保存文件（带时间戳）
             timestamp = int(time.time())
-            ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else 'jpg'
+            ext = file.filename.rsplit('.', 1)[1].lower()
             filename = f"product_{timestamp}.{ext}"
             file_path = os.path.join(UPLOADS_DIR, filename)
             file.save(file_path)
@@ -499,6 +524,12 @@ def upload_product_image():
 @app.route('/upload_debug_image', methods=['POST'])
 def upload_debug_image():
     """处理调试图像上传"""
+    # 允许的文件扩展名
+    ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png'}
+
+    def allowed_file(filename):
+        return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
     try:
         if 'image' not in request.files:
             return jsonify({
@@ -514,10 +545,18 @@ def upload_debug_image():
                 "error": "没有选择图片文件"
             })
 
+        # 验证文件类型
+        if not allowed_file(file.filename):
+            return jsonify({
+                "success": False,
+                "error": "不支持的文件格式，仅支持 JPG、JPEG、PNG 格式"
+            })
+
         if file:
             # 保存文件（带时间戳）
             timestamp = int(time.time())
-            filename = f"debug_upload_{timestamp}.jpg"
+            ext = file.filename.rsplit('.', 1)[1].lower()
+            filename = f"debug_upload_{timestamp}.{ext}"
             file_path = os.path.join(UPLOADS_DIR, filename)
             file.save(file_path)
 

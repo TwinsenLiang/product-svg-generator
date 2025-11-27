@@ -606,35 +606,12 @@ document.addEventListener('DOMContentLoaded', function() {
         // 统计信息
         const pairedCount = markerPairs.filter(p => p.original && p.svg).length;
         const totalMarkers = markerPairs.length;
-        const hasColors = markerPairs.some(p => p.original && p.original.color);
 
         debugHtml += `<div style="margin-top: 15px; padding: 10px; background: #e7f3ff; border-radius: 5px; text-align: center;">`;
         debugHtml += `<strong>统计：</strong> 总标记数 ${totalMarkers} | 已配对 ${pairedCount} | 待配对 ${totalMarkers - pairedCount}`;
         debugHtml += '</div>';
 
-        // 如果有颜色数据，显示渐变色生成按钮
-        if (hasColors) {
-            debugHtml += `<div style="margin-top: 10px; text-align: center;">`;
-            debugHtml += `<button id="extract-gradient-btn" class="btn btn-primary" style="margin-right: 10px;">📊 生成渐变色代码</button>`;
-            debugHtml += `<button id="apply-gradient-btn" class="btn btn-success">✨ 应用渐变色到SVG</button>`;
-            debugHtml += '</div>';
-        }
-
         debugContent.innerHTML = debugHtml;
-
-        // 绑定按钮事件
-        if (hasColors) {
-            const extractBtn = document.getElementById('extract-gradient-btn');
-            const applyBtn = document.getElementById('apply-gradient-btn');
-
-            if (extractBtn) {
-                extractBtn.addEventListener('click', extractGradientCode);
-            }
-
-            if (applyBtn) {
-                applyBtn.addEventListener('click', applyGradientToSVG);
-            }
-        }
     }
 
     // 清除所有标记
@@ -643,71 +620,6 @@ document.addEventListener('DOMContentLoaded', function() {
         markerPairs = [];
         nextMarkerId = 1;
         console.log('已清除所有标记');
-    }
-
-    // 生成渐变色代码
-    function extractGradientCode() {
-        const colors = markerPairs
-            .filter(p => p.original && p.original.color)
-            .map(p => p.original.color);
-
-        if (colors.length === 0) {
-            alert('没有可用的颜色数据');
-            return;
-        }
-
-        // 按Y坐标排序（从上到下）
-        const sortedPairs = markerPairs
-            .filter(p => p.original && p.original.color)
-            .sort((a, b) => a.original.y - b.original.y);
-
-        let gradientCode = '<linearGradient id="remoteGradient" x1="0%" y1="0%" x2="0%" y2="100%">\n';
-
-        sortedPairs.forEach((pair, index) => {
-            const offset = (index / (sortedPairs.length - 1) * 100).toFixed(0);
-            const color = pair.original.color;
-            gradientCode += `  <stop offset="${offset}%" style="stop-color:#${color.hex};stop-opacity:1" />\n`;
-        });
-
-        gradientCode += '</linearGradient>';
-
-        // 显示在调试区域
-        let html = '<h3>🎨 生成的渐变色代码</h3>';
-        html += '<div style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 10px 0;">';
-        html += '<pre style="margin: 0; overflow-x: auto;"><code>' + gradientCode.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</code></pre>';
-        html += '</div>';
-
-        // 显示渐变色预览
-        html += '<div style="margin: 10px 0;"><strong>预览：</strong></div>';
-        const stops = sortedPairs.map((p, i) => {
-            const offset = (i / (sortedPairs.length - 1) * 100).toFixed(0);
-            return `#${p.original.color.hex} ${offset}%`;
-        }).join(', ');
-        html += `<div style="width: 100%; height: 100px; background: linear-gradient(to bottom, ${stops}); border: 1px solid #ccc; border-radius: 5px;"></div>`;
-
-        html += '<div style="margin-top: 10px; text-align: center;">';
-        html += '<button id="copy-gradient-btn" class="btn btn-outline">📋 复制代码</button>';
-        html += '</div>';
-
-        debugContent.innerHTML = html;
-
-        // 绑定复制按钮事件
-        const copyBtn = document.getElementById('copy-gradient-btn');
-        if (copyBtn) {
-            copyBtn.addEventListener('click', function() {
-                navigator.clipboard.writeText(gradientCode).then(() => {
-                    alert('已复制到剪贴板！');
-                }).catch(err => {
-                    console.error('复制失败:', err);
-                    alert('复制失败，请手动复制');
-                });
-            });
-        }
-    }
-
-    // 应用渐变色到SVG
-    function applyGradientToSVG() {
-        alert('此功能需要后端支持，将在下一版本实现！\n\n请先使用"生成渐变色代码"功能，手动更新 src/svg_templates.py 中的渐变色定义。');
     }
     
     // 标记校验模式切换

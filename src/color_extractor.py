@@ -191,13 +191,14 @@ class ColorExtractor:
         print(f"[点阵采样] ✓ 完成采样,共{len(color_grid)}个颜色点", flush=True)
         return color_grid
 
-    def extract_contour_color(self, image, contour_info):
+    def extract_contour_color(self, image, contour_info, sample_ring=False):
         """
         提取轮廓内部的平均颜色
 
         Args:
             image: numpy数组格式的图像
             contour_info: 轮廓信息字典,包含 'contour' 和 'bounding_box'
+            sample_ring: 是否采样环形边缘（用于检测环形轮廓的外圈颜色）
 
         Returns:
             颜色字典: {'r': r, 'g': g, 'b': b, 'hex': hex}
@@ -207,6 +208,15 @@ class ColorExtractor:
         # 创建掩码
         mask = np.zeros((h, w), dtype=np.uint8)
         cv2.drawContours(mask, [contour_info['contour']], -1, 255, -1)
+
+        if sample_ring:
+            # 环形采样：只采样外圈边缘（缩小5%）
+            mask_inner = np.zeros((h, w), dtype=np.uint8)
+            # 缩小轮廓（腐蚀）
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+            mask_inner = cv2.erode(mask, kernel, iterations=1)
+            # 环形 = 外圈 - 内圈
+            mask = cv2.subtract(mask, mask_inner)
 
         # 计算轮廓内部的平均颜色
         masked_pixels = image[mask == 255]
