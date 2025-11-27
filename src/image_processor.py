@@ -1,33 +1,83 @@
 """
-Image processing module for 产品SVG生成器
+图像处理模块
 """
 import cv2
 import numpy as np
-from PIL import Image
 import os
+from config import IMAGE_PROCESSING
+
 
 class ImageProcessor:
+    """图像处理器，负责图像加载、主体检测和特征提取"""
+
     def __init__(self, image_path):
         """
-        Initialize the image processor with an image path
+        初始化图像处理器
+
+        Args:
+            image_path: 图像文件路径
         """
         self.image_path = image_path
         self.original_image = None
         self.processed_image = None
+
+        # 从配置加载参数
+        self.min_area_ratio = IMAGE_PROCESSING['min_area_ratio']
+        self.max_area_ratio = IMAGE_PROCESSING['max_area_ratio']
+        self.gaussian_kernel = IMAGE_PROCESSING['gaussian_blur_kernel']
+        self.morph_close_kernel = IMAGE_PROCESSING['morph_close_kernel']
+        self.morph_open_kernel = IMAGE_PROCESSING['morph_open_kernel']
         
     def load_image(self):
         """
-        Load the image from the specified path
+        加载图像文件
+
+        Returns:
+            加载的图像数组
+
+        Raises:
+            FileNotFoundError: 文件不存在
+            ValueError: 无法加载图像
         """
         if not os.path.exists(self.image_path):
-            raise FileNotFoundError(f"Image file not found: {self.image_path}")
-        
+            raise FileNotFoundError(f"图像文件不存在: {self.image_path}")
+
         self.original_image = cv2.imread(self.image_path)
         if self.original_image is None:
-            raise ValueError(f"Could not load image: {self.image_path}")
-            
+            raise ValueError(f"无法加载图像: {self.image_path}")
+
         self.processed_image = self.original_image.copy()
         return self.original_image
+    
+    def crop_to_main_object(self, padding=10):
+        """
+        裁剪图像到主体对象
+
+        Args:
+            padding: 边距大小（像素）
+
+        Returns:
+            (cropped_image, (x, y, w, h)): 裁剪后的图像和裁剪坐标
+        """
+        if self.original_image is None:
+            self.load_image()
+
+        # 检测主体对象
+        detection_result = self.detect_main_object(padding=padding)
+
+        if detection_result is None:
+            # 未检测到对象，返回原图
+            h, w = self.original_image.shape[:2]
+            return self.original_image, (0, 0, w, h)
+
+        # 获取带边距的矩形坐标
+        padded_rect = detection_result['padded_rect']
+        x, y, w, h = padded_rect
+
+        # 裁剪图像
+        cropped_image = self.original_image[y:y+h, x:x+w]
+
+        return cropped_image, (x, y, w, h)
     
     def detect_main_object(self, padding=10):
         """
@@ -37,11 +87,11 @@ class ImageProcessor:
         if self.original_image is None:
             self.load_image()
             
-        # Convert to grayscale
+        # 转为灰度图
         gray = cv2.cvtColor(self.original_image, cv2.COLOR_BGR2GRAY)
-        
-        # Apply Gaussian blur to reduce noise while preserving edges
-        blurred = cv2.GaussianBlur(gray, (3, 3), 0)
+
+        # 应用高斯模糊降噪
+        blurred = cv2.GaussianBlur(gray, self.gaussian_kernel, 0)
         
         # Use Otsu's thresholding for better binary separation
         _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
@@ -51,23 +101,20 @@ class ImageProcessor:
         if cv2.countNonZero(thresh) > thresh.size / 2:
             thresh = cv2.bitwise_not(thresh)
         
-        # Morphological operations to clean up the image
-        # Use larger kernel for closing to fill gaps in the outline
-        kernel_close = cv2.getStructuringElement(cv2.MORPH_RECT, (11, 11))
-        # Use smaller kernel for opening to remove small noise
-        kernel_open = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        # 形态学操作清理图像
+        kernel_close = cv2.getStructuringElement(cv2.MORPH_RECT, self.morph_close_kernel)
+        kernel_open = cv2.getStructuringElement(cv2.MORPH_RECT, self.morph_open_kernel)
         morph = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel_close)
         morph = cv2.morphologyEx(morph, cv2.MORPH_OPEN, kernel_open)
         
-        # Find contours
-        contours, _ = cv2.findContours(morph, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        # Find contours - 使用 RETR_LIST 检测所有轮廓(包括内部按钮)
+        contours, _ = cv2.findContours(morph, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
         
-        # Filter contours based on area and shape to find the main object
+        # 根据面积和形状筛选轮廓
         valid_contours = []
         image_area = gray.shape[0] * gray.shape[1]
-        # Adjust area requirements for better remote detection
-        min_area = image_area * 0.03  # Minimum 3% of image area (lowered)
-        max_area = image_area * 0.9   # Maximum 90% of image area (increased)
+        min_area = image_area * self.min_area_ratio
+        max_area = image_area * self.max_area_ratio
         
         print(f"Found {len(contours)} contours")
         
@@ -309,3 +356,145 @@ class ImageProcessor:
         
         # Limit to top 50 features to avoid overwhelming the SVG
         return features[:50]
+
+    def detect_all_contours(self):
+        """
+        检测所有轮廓并分类（采用边缘卷积方法增强圆形检测）
+        分类原则：1.先整体再局部 2.从上到下
+
+        Returns:
+            所有轮廓列表,包含类型分类
+        """
+        if self.original_image is None:
+            self.load_image()
+
+        # 转为灰度图
+        gray = cv2.cvtColor(self.original_image, cv2.COLOR_BGR2GRAY)
+
+        # 应用高斯模糊降噪
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+
+        # === 方法1: Otsu阈值检测主体 ===
+        _, thresh_otsu = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        if cv2.countNonZero(thresh_otsu) > thresh_otsu.size / 2:
+            thresh_otsu = cv2.bitwise_not(thresh_otsu)
+
+        kernel_close = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+        kernel_open = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        morph_otsu = cv2.morphologyEx(thresh_otsu, cv2.MORPH_CLOSE, kernel_close)
+        morph_otsu = cv2.morphologyEx(morph_otsu, cv2.MORPH_OPEN, kernel_open)
+
+        # === 方法2: Canny边缘检测圆形区域（更敏感） ===
+        edges = cv2.Canny(blurred, 30, 100)
+
+        # 形态学操作连接边缘
+        kernel_circle = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        edges_closed = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel_circle, iterations=2)
+
+        # 合并两种检测结果
+        combined = cv2.bitwise_or(morph_otsu, edges_closed)
+
+        # 检测所有轮廓
+        contours, hierarchy = cv2.findContours(combined, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+        all_contours = []
+        image_area = gray.shape[0] * gray.shape[1]
+        h_img, w_img = gray.shape
+
+        print(f"[轮廓检测] 原始检测到 {len(contours)} 个轮廓", flush=True)
+
+        for i, contour in enumerate(contours):
+            area = cv2.contourArea(contour)
+
+            # 过滤太小的噪点
+            if area < 100:
+                continue
+
+            x, y, w, h = cv2.boundingRect(contour)
+            aspect_ratio = float(w) / h if h > 0 else 0
+
+            # 计算extent
+            rect_area = w * h
+            extent = float(area) / rect_area if rect_area > 0 else 0
+
+            # 计算圆度 (4πA/P²)
+            perimeter = cv2.arcLength(contour, True)
+            circularity = 4 * np.pi * area / (perimeter * perimeter) if perimeter > 0 else 0
+
+            # 计算凸包比率
+            hull = cv2.convexHull(contour)
+            hull_area = cv2.contourArea(hull)
+            convexity = float(area) / hull_area if hull_area > 0 else 0
+
+            # 计算中心位置（用于从上到下排序）
+            M = cv2.moments(contour)
+            cy = int(M['m01'] / M['m00']) if M['m00'] != 0 else y + h // 2
+
+            # 🔍 调试：打印所有大面积轮廓特征（迭代2诊断 - 降低阈值到2000）
+            if area > 2000:
+                print(f"[大轮廓] 面积={int(area)}, 位置=({x},{y},{w},{h}), "
+                      f"圆度={circularity:.2f}, 凸度={convexity:.2f}, "
+                      f"宽高比={aspect_ratio:.2f}, center_y={cy}", flush=True)
+
+            all_contours.append({
+                'contour': contour,
+                'type': 'unknown',  # 稍后分类
+                'area': int(area),
+                'bounding_box': (int(x), int(y), int(w), int(h)),
+                'aspect_ratio': round(aspect_ratio, 2),
+                'extent': round(extent, 2),
+                'circularity': round(circularity, 2),
+                'convexity': round(convexity, 2),
+                'center_y': cy
+            })
+
+        # === 按照"先整体再局部，从上到下"原则分类 ===
+
+        # 1. 先找主体（最大的轮廓）
+        all_contours.sort(key=lambda c: c['area'], reverse=True)
+        if len(all_contours) > 0:
+            all_contours[0]['type'] = 'body'
+            print(f"[轮廓分类] 主体: 面积={all_contours[0]['area']}, 位置={all_contours[0]['bounding_box']}", flush=True)
+
+        # 2. 局部区域：圆形检测
+        circular_regions = []
+        for c in all_contours[1:]:  # 跳过主体
+            # 圆形判断条件（迭代1优化）：
+            # - 宽高比接近1 (0.6-1.4)
+            # - 圆度适中 (>0.4，降低要求)
+            # - 凸度高 (>0.75，降低要求)
+            # - 面积足够大 (>2000，提高阈值过滤小噪点)
+            is_circular = (
+                0.6 <= c['aspect_ratio'] <= 1.4 and
+                c['circularity'] > 0.4 and
+                c['convexity'] > 0.75 and
+                c['area'] > 2000
+            )
+
+            if is_circular:
+                circular_regions.append(c)
+                print(f"[圆形检测] 面积={c['area']}, 位置={c['bounding_box']}, "
+                      f"圆度={c['circularity']:.2f}, 宽高比={c['aspect_ratio']:.2f}", flush=True)
+
+        # 3. 分类圆形区域（基于面积和位置）
+        if len(circular_regions) > 0:
+            # 按面积排序，找到最大的圆形 = 控制区
+            circular_regions.sort(key=lambda c: c['area'], reverse=True)
+
+            # 最大的圆形 = 圆形控制区
+            circular_regions[0]['type'] = 'circle_control'
+            print(f"[轮廓分类] 圆形控制区: 面积={circular_regions[0]['area']}, 位置={circular_regions[0]['bounding_box']}", flush=True)
+
+            # 剩余的圆形按从上到下排序 = 按钮
+            buttons = circular_regions[1:]
+            buttons.sort(key=lambda c: c['center_y'])
+
+            for idx, btn in enumerate(buttons):
+                btn['type'] = 'button'
+                print(f"[轮廓分类] 按钮#{idx+1}: 面积={btn['area']}, 位置={btn['bounding_box']}", flush=True)
+
+        # 过滤掉未分类的轮廓
+        all_contours = [c for c in all_contours if c['type'] != 'unknown']
+
+        print(f"[轮廓检测] 最终分类: {len(all_contours)} 个有效轮廓", flush=True)
+        return all_contours

@@ -16,17 +16,20 @@
         <div class="comparison-area">
             <div class="image-container">
                 <h2 class="section-title">产品原图</h2>
-                <div class="svg-container" id="original-container">
-                    <svg width="100%" height="100%" viewBox="0 0 960 1280" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
-                        <image href="{{ url_for('static', filename='images/apple_remote_original.jpg') }}" width="960" height="1280" />
-                        <!-- Detection contours will be overlaid here -->
-                    </svg>
+                <div class="svg-container" id="original-container" style="cursor: crosshair;">
+                    <!-- 产品图片上传区 -->
+                    <div class="product-upload-area" id="product-upload-area">
+                        <div class="upload-icon">📷</div>
+                        <p>点击或拖拽上传产品图片</p>
+                        <p class="upload-hint">支持 JPG、PNG 格式</p>
+                        <input type="file" id="product-image-upload" accept="image/jpeg,image/png,image/jpg" style="display: none;">
+                    </div>
                 </div>
             </div>
-            
+
             <div class="image-container">
                 <h2 class="section-title">产品SVG</h2>
-                <div class="svg-container" id="svg-container">
+                <div class="svg-container" id="svg-container" style="cursor: crosshair;">
                     <!-- Generated SVG will be displayed here -->
                 </div>
             </div>
@@ -34,17 +37,35 @@
         
         <div class="controls">
             <div class="button-group">
+                <button id="change-image-btn" class="btn btn-outline">更换图片</button>
                 <button id="generate-btn" class="btn">智能生成</button>
                 <button id="outline-btn" class="btn btn-outline">标出轮廓</button>
                 <button id="compare-btn" class="btn btn-outline">标记校验</button>
             </div>
+            <input type="file" id="change-image-upload" accept="image/jpeg,image/png,image/jpg" style="display: none;">
         </div>
         
         <div class="debug-info">
             <h2>调试信息</h2>
+            <div style="text-align: right; margin-bottom: 10px;">
+                <button id="copy-debug-btn" class="btn btn-outline" style="min-width: 100px; padding: 8px 16px; font-size: 14px;">复制信息</button>
+            </div>
             <div id="debug-content">
                 <!-- Debug information will be displayed here -->
             </div>
+        </div>
+        
+        <div class="upload-section">
+            <h2>上传调试图片</h2>
+            <p class="subtitle">上传截图帮助调试算法差异</p>
+            <form id="upload-form" enctype="multipart/form-data">
+                <div class="upload-area" id="upload-area">
+                    <p>点击或拖拽图片到此处上传</p>
+                    <input type="file" id="image-upload" name="image" accept="image/*" style="display: none;">
+                </div>
+                <button type="submit" class="btn" id="upload-btn">上传图片</button>
+            </form>
+            <div id="upload-result"></div>
         </div>
         
         <footer>

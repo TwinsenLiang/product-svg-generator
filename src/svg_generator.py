@@ -1,143 +1,153 @@
 """
-SVG generator module for 产品SVG生成器
+SVG生成器模块
 """
 import cv2
-import numpy as np
+from config import SVG_CONFIG
+from svg_templates import generate_remote_body, create_svg_document
+
 
 class SVGGenerator:
+    """SVG生成器，负责将图像处理结果转换为SVG"""
+
     def __init__(self):
-        """
-        Initialize the SVG generator
-        """
-        pass
-    
+        """初始化SVG生成器"""
+        self.max_rx = SVG_CONFIG['max_corner_radius_x']
+        self.max_ry = SVG_CONFIG['max_corner_radius_y']
+
     def simplify_contour(self, contour, epsilon_factor=0.01):
         """
-        Simplify contour using Ramer-Douglas-Peucker algorithm
+        使用Ramer-Douglas-Peucker算法简化轮廓
+
+        Args:
+            contour: 轮廓点集
+            epsilon_factor: 简化因子
+
+        Returns:
+            简化后的轮廓
         """
         if len(contour) < 3:
             return contour
-            
+
         epsilon = epsilon_factor * cv2.arcLength(contour, True)
         simplified = cv2.approxPolyDP(contour, epsilon, True)
         return simplified
-    
+
     def contour_to_svg_path(self, contour):
         """
-        Convert a contour to an SVG path with curve approximation
+        将轮廓转换为SVG路径
+
+        Args:
+            contour: 轮廓点集
+
+        Returns:
+            SVG路径字符串
         """
         if len(contour) == 0:
             return ""
-            
-        # Simplify the contour for cleaner SVG
+
+        # 简化轮廓
         simplified_contour = self.simplify_contour(contour, epsilon_factor=0.005)
-        
+
         if len(simplified_contour) == 0:
             return ""
-            
-        # Start the path
+
+        # 构建路径
         path_data = "M "
-        
-        # Add the first point
+
+        # 添加第一个点
         first_point = simplified_contour[0][0]
         path_data += f"{first_point[0]},{first_point[1]} "
-        
-        # Add the remaining points
+
+        # 添加其余点
         for i in range(1, len(simplified_contour)):
             point = simplified_contour[i][0]
             path_data += f"L {point[0]},{point[1]} "
-            
-        # Close the path
+
+        # 闭合路径
         path_data += "Z"
-        
+
         return path_data
-    
-    def generate_svg(self, width, height, main_contour=None, features=None, padded_rect=None):
+
+    def _calculate_corner_radius(self, width, height):
         """
-        Generate an SVG from the detected contours
+        计算圆角半径
+
+        Args:
+            width: 宽度
+            height: 高度
+
+        Returns:
+            (rx, ry) 圆角半径元组
         """
-        # If we have a padded rectangle, use it for better visualization
+        rx = min(self.max_rx, width // 10)
+        ry = min(self.max_ry, height // 20)
+        return rx, ry
+
+    def _adjust_coordinates(self, x, y, offset_x, offset_y):
+        """
+        根据裁剪偏移调整坐标
+
+        Args:
+            x, y: 原始坐标
+            offset_x, offset_y: 偏移量
+
+        Returns:
+            (adjusted_x, adjusted_y) 调整后的坐标
+        """
+        return x - offset_x, y - offset_y
+
+    def generate_svg(self, width, height, main_contour=None, features=None,
+                    padded_rect=None, crop_offset=(0, 0)):
+        """
+        生成SVG文档
+
+        Args:
+            width, height: SVG画布尺寸
+            main_contour: 主体轮廓
+            features: 特征列表（暂未使用）
+            padded_rect: 带边距的矩形 (x, y, w, h)
+            crop_offset: 裁剪偏移 (offset_x, offset_y)
+
+        Returns:
+            完整的SVG文档字符串
+        """
+        offset_x, offset_y = crop_offset
+
+        # 优先使用带边距的矩形
         if padded_rect is not None:
             x, y, w, h = padded_rect
-            
-            # Calculate rounded corners based on the actual contour
-            # For a remote control, we typically want moderate rounding
-            rx = min(30, w // 10)  # Radius X, max 30px
-            ry = min(30, h // 20)  # Radius Y, max 30px
-            
-            # Create SVG with rounded rectangle that matches the padded detected contour
-            svg_content = f'''<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">
-  <!-- Remote Control Body based on padded detected contour -->
-  <defs>
-    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur in="SourceAlpha" stdDeviation="3"/>
-      <feOffset dx="3" dy="3" result="offsetblur"/>
-      <feFlood flood-color="rgba(0,0,0,0.3)"/>
-      <feComposite in2="offsetblur" operator="in"/>
-      <feMerge>
-        <feMergeNode/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
-  </defs>
-  
-  <!-- Main Remote Body based on padded detected shape -->
-  <rect x="{x}" y="{y}" width="{w}" height="{h}" rx="{rx}" ry="{ry}" fill="#333" stroke="#000" stroke-width="2" filter="url(#shadow)"/>
-  
-  <!-- Center indicator line -->
-  <line x1="{x + w//2}" y1="{y}" x2="{x + w//2}" y2="{y + h}" stroke="#555" stroke-width="1" stroke-dasharray="5,5"/>
-</svg>'''
+            print(f"[SVG_GEN] ========== SVG生成开始 ==========", flush=True)
+            print(f"[SVG_GEN] 输入 padded_rect: x={x}, y={y}, w={w}, h={h}", flush=True)
+            print(f"[SVG_GEN] 输入 crop_offset: offset_x={offset_x}, offset_y={offset_y}", flush=True)
+            print(f"[SVG_GEN] 输入 canvas: width={width}, height={height}", flush=True)
+
+            x, y = self._adjust_coordinates(x, y, offset_x, offset_y)
+            rx, ry = self._calculate_corner_radius(w, h)
+
+            print(f"[SVG_GEN] 调整后坐标: x={x}, y={y}", flush=True)
+            print(f"[SVG_GEN] 矩形尺寸: w={w}, h={h}", flush=True)
+            print(f"[SVG_GEN] 圆角半径: rx={rx}, ry={ry}", flush=True)
+            print(f"[SVG_GEN] ========== SVG生成结束 ==========", flush=True)
+
+            body = generate_remote_body(x, y, w, h, rx, ry)
+            return create_svg_document(width, height, body,
+                                      "基于带边距检测轮廓的主体")
+
+        # 退回到使用原始轮廓
         elif main_contour is not None and len(main_contour) >= 4:
-            # Fallback to original contour if no padded rectangle
-            import cv2
             x, y, w, h = cv2.boundingRect(main_contour)
-            
-            # Calculate rounded corners based on the actual contour
-            # For a remote control, we typically want moderate rounding
-            rx = min(30, w // 10)  # Radius X, max 30px
-            ry = min(30, h // 20)  # Radius Y, max 30px
-            
-            # Create SVG with rounded rectangle that matches the detected contour
-            svg_content = f'''<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">
-  <!-- Remote Control Body based on detected contour -->
-  <defs>
-    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur in="SourceAlpha" stdDeviation="3"/>
-      <feOffset dx="3" dy="3" result="offsetblur"/>
-      <feFlood flood-color="rgba(0,0,0,0.3)"/>
-      <feComposite in2="offsetblur" operator="in"/>
-      <feMerge>
-        <feMergeNode/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
-  </defs>
-  
-  <!-- Main Remote Body based on detected shape -->
-  <rect x="{x}" y="{y}" width="{w}" height="{h}" rx="{rx}" ry="{ry}" fill="#333" stroke="#000" stroke-width="2" filter="url(#shadow)"/>
-  
-  <!-- Center indicator line -->
-  <line x1="{x + w//2}" y1="{y}" x2="{x + w//2}" y2="{y + h}" stroke="#555" stroke-width="1" stroke-dasharray="5,5"/>
-</svg>'''
+            x, y = self._adjust_coordinates(x, y, offset_x, offset_y)
+            rx, ry = self._calculate_corner_radius(w, h)
+
+            body = generate_remote_body(x, y, w, h, rx, ry)
+            return create_svg_document(width, height, body,
+                                      "基于检测轮廓的主体")
+
+        # 默认模板
         else:
-            # Fallback to default template if no contour detected
-            svg_content = f'''<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">
-  <!-- Default Remote Control Body -->
-  <defs>
-    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur in="SourceAlpha" stdDeviation="3"/>
-      <feOffset dx="3" dy="3" result="offsetblur"/>
-      <feFlood flood-color="rgba(0,0,0,0.3)"/>
-      <feComposite in2="offsetblur" operator="in"/>
-      <feMerge>
-        <feMergeNode/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
-  </defs>
-  
-  <!-- Default Main Remote Body -->
-  <rect x="320" y="200" width="320" height="880" rx="20" ry="20" fill="#333" stroke="#000" stroke-width="2" filter="url(#shadow)"/>
-</svg>'''
-        
-        return svg_content
+            x, y, w, h = 320, 200, 320, 880
+            rx, ry = self._calculate_corner_radius(w, h)
+
+            body = generate_remote_body(x, y, w, h, rx, ry)
+            return create_svg_document(width, height, body,
+                                      "默认主体")

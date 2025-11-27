@@ -1,30 +1,35 @@
-# Virtual environment
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
 venv/
 env/
 ENV/
+*.egg-info/
+dist/
+build/
+
+# 项目特定
+*.pid
+static/uploads/*
+!static/uploads/.gitkeep
+logs/
+*.log
+
+# 临时文件
+test_output*.svg
+test_output*.jpg
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
 
-# OS
+# 系统文件
 .DS_Store
 ._*
 Thumbs.db
-
-# Logs
-*.log
-
-# Test outputs
-test_output*.jpg
-test_output*.svg
-
-# Server logs
-server.log
-
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
