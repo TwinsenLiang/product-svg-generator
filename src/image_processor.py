@@ -100,13 +100,13 @@ class ImageProcessor:
         if cv2.countNonZero(thresh_otsu) > thresh_otsu.size / 2:
             thresh_otsu = cv2.bitwise_not(thresh_otsu)
 
-        # === 策略2: Canny边缘检测（检测屏幕边框等细节） ===
-        # 降低阈值以捕获更多边缘细节
-        edges = cv2.Canny(blurred, 20, 80)
+        # === 策略2: Canny边缘检测（只检测强边缘=产品边框，忽略阴影渐变） ===
+        # 提高阈值,只捕获产品主体的强边缘,排除阴影等弱边缘
+        edges = cv2.Canny(blurred, 50, 150)  # 从(20,80)提高到(50,150)
 
-        # 膨胀边缘以连接断开的线条
+        # 膨胀边缘以连接断开的线条(减少iterations避免过度膨胀)
         kernel_dilate = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-        edges_dilated = cv2.dilate(edges, kernel_dilate, iterations=3)
+        edges_dilated = cv2.dilate(edges, kernel_dilate, iterations=2)  # 从3降到2
 
         # === 合并两种策略的结果 ===
         combined = cv2.bitwise_or(thresh_otsu, edges_dilated)
@@ -455,6 +455,11 @@ class ImageProcessor:
                       f"圆度={circularity:.2f}, 凸度={convexity:.2f}, "
                       f"宽高比={aspect_ratio:.2f}, center_y={cy}", flush=True)
 
+            # 提取层级信息 (hierarchy格式: [next, previous, first_child, parent])
+            h_info = hierarchy[0][i] if hierarchy is not None else [-1, -1, -1, -1]
+            parent_idx = h_info[3]  # 父轮廓索引
+            first_child_idx = h_info[2]  # 第一个子轮廓索引
+
             all_contours.append({
                 'contour': contour,
                 'type': 'unknown',  # 稍后分类
@@ -464,7 +469,11 @@ class ImageProcessor:
                 'extent': round(extent, 2),
                 'circularity': round(circularity, 2),
                 'convexity': round(convexity, 2),
-                'center_y': cy
+                'center_y': cy,
+                'contour_id': i,  # 轮廓在原始列表中的索引
+                'parent_id': parent_idx,  # 父轮廓索引(-1表示顶层)
+                'first_child_id': first_child_idx,  # 第一个子轮廓索引(-1表示无子轮廓)
+                'children': []  # 稍后填充子轮廓列表
             })
 
         # === 按照"先整体再局部，从上到下"原则分类 ===
@@ -560,5 +569,373 @@ class ImageProcessor:
         # 过滤掉未分类的轮廓（包括噪点）
         all_contours = [c for c in all_contours if c['type'] != 'unknown']
 
+        # === 构建父子关系(循环卷积矩阵的基础) ===
+        # 创建contour_id到轮廓的映射
+        contour_map = {c['contour_id']: c for c in all_contours}
+
+        # 为每个轮廓填充children列表
+        for contour_info in all_contours:
+            parent_id = contour_info.get('parent_id', -1)
+            if parent_id != -1 and parent_id in contour_map:
+                # 将当前轮廓添加到父轮廓的children列表
+                parent = contour_map[parent_id]
+                parent['children'].append(contour_info)
+
+        # 打印层级关系调试信息
+        for contour_info in all_contours:
+            if len(contour_info['children']) > 0:
+                print(f"[层级关系] {contour_info['type']}: 有 {len(contour_info['children'])} 个子轮廓", flush=True)
+
+        # 为每个轮廓添加形状分类和阴影检测
+        for contour_info in all_contours:
+            shape_type = self.classify_shape(contour_info)
+            contour_info['shape'] = shape_type
+
+            # 检测阴影（仅对按钮和主体进行检测）
+            if contour_info['type'] in ['button', 'body', 'circle_control']:
+                shadow_info = self.detect_shadow(contour_info)
+                contour_info['shadow'] = shadow_info
+                if shadow_info['has_inner_shadow'] or shadow_info['has_outer_shadow']:
+                    print(f"[阴影检测] {contour_info['type']}: 内阴影={shadow_info['has_inner_shadow']}({shadow_info['inner_strength']}), 外阴影={shadow_info['has_outer_shadow']}({shadow_info['outer_strength']})", flush=True)
+
+            print(f"[形状识别] {contour_info['type']}: {shape_type}", flush=True)
+
         print(f"[轮廓检测] 最终分类: {len(all_contours)} 个有效轮廓", flush=True)
         return all_contours
+
+    def classify_shape(self, contour_info):
+        """
+        分类轮廓形状：circle(圆形), cross(十字), rectangle(矩形), triangle(三角形), line(线条), complex(复杂形状)
+
+        Args:
+            contour_info: 轮廓信息字典
+
+        Returns:
+            形状类型字符串
+        """
+        contour = contour_info['contour']
+        circularity = contour_info.get('circularity', 0)
+        aspect_ratio = contour_info.get('aspect_ratio', 0)
+        extent = contour_info.get('extent', 0)
+        contour_type = contour_info.get('type', 'unknown')
+
+        # 0. 主体body始终视为矩形（产品外形都是规则矩形）
+        if contour_type == 'body':
+            return 'rectangle'
+
+        # 1. 圆形判断：圆度 > 0.85（提高阈值，避免将方形误判为圆形）
+        if circularity > 0.85:
+            return 'circle'
+
+        # 2. 近似多边形
+        epsilon = 0.04 * cv2.arcLength(contour, True)
+        approx = cv2.approxPolyDP(contour, epsilon, True)
+        vertices = len(approx)
+
+        # 3. 线条判断（如 "-" 号）：宽高比极端 + 面积小
+        # 注意：只对小型button应用此规则，不对body应用
+        if aspect_ratio > 3.0 or aspect_ratio < 0.33:
+            if extent > 0.5:  # 填充率合理
+                return 'line'
+
+        # 4. 三角形判断
+        if vertices == 3:
+            return 'triangle'
+
+        # 5. 矩形/正方形判断（放宽条件）
+        if vertices == 4:
+            # 检查是否接近矩形
+            x, y, w, h = cv2.boundingRect(contour)
+            rect_area = w * h
+            contour_area = cv2.contourArea(contour)
+            extent_calc = contour_area / rect_area if rect_area > 0 else 0
+
+            if extent_calc > 0.75:  # 降低阈值从0.85到0.75
+                return 'rectangle'
+
+        # 6. 圆度在 0.6-0.85 之间 + 矩形特征 → 方形按钮
+        if 0.6 < circularity < 0.85 and extent > 0.70:  # 降低到0.70
+            # 检查是否为圆角矩形
+            if 0.7 < aspect_ratio < 1.4:
+                return 'rectangle'
+
+        # 7. 十字形判断：检查凸缺陷
+        hull = cv2.convexHull(contour, returnPoints=False)
+        if len(hull) > 3 and len(contour) > 10:
+            try:
+                defects = cv2.convexityDefects(contour, hull)
+                if defects is not None and len(defects) >= 4:
+                    # 有4个或更多凸缺陷，可能是十字形
+                    # 进一步检查：十字形的宽高比应该接近1
+                    if 0.7 < aspect_ratio < 1.3:
+                        # 检查凸度（十字形凸度较低，约0.6-0.8）
+                        if 0.5 < contour_info.get('convexity', 1) < 0.85:
+                            return 'cross'
+            except:
+                pass
+
+        # 8. 复杂形状
+        return 'complex'
+
+    def detect_corner_radius(self, contour_info):
+        """
+        检测主体的圆角半径(支持动态检测和分段圆角)
+
+        Args:
+            contour_info: 轮廓信息字典
+
+        Returns:
+            dict: {
+                'uniform': int,  # 统一圆角半径
+                'corners': {     # 四个角的单独半径
+                    'top_left': int,
+                    'top_right': int,
+                    'bottom_left': int,
+                    'bottom_right': int
+                },
+                'use_uniform': bool  # 是否使用统一圆角
+            }
+        """
+        x, y, w, h = contour_info['bounding_box']
+        contour = contour_info.get('contour')
+
+        # 如果没有轮廓信息,使用默认值
+        if contour is None or len(contour) < 4:
+            min_side = min(w, h)
+            default_radius = max(5, min(int(min_side * 0.08), 50))
+            return {
+                'uniform': default_radius,
+                'corners': {
+                    'top_left': default_radius,
+                    'top_right': default_radius,
+                    'bottom_left': default_radius,
+                    'bottom_right': default_radius
+                },
+                'use_uniform': True
+            }
+
+        # === 方案1:基于轮廓点分析四个角的曲率 ===
+        # 定义四个角的区域(缩小到1/6宽高,更精确定位角部)
+        corner_size = min(w // 6, h // 6)  # 使用更小的区域
+        corner_regions = {
+            'top_left': (x, y, x + corner_size, y + corner_size),
+            'top_right': (x + w - corner_size, y, x + w, y + corner_size),
+            'bottom_left': (x, y + h - corner_size, x + corner_size, y + h),
+            'bottom_right': (x + w - corner_size, y + h - corner_size, x + w, y + h)
+        }
+
+        corner_radii = {}
+
+        for corner_name, (x1, y1, x2, y2) in corner_regions.items():
+            # 提取该角区域内的轮廓点
+            corner_points = []
+            for point in contour:
+                px, py = point[0]
+                if x1 <= px <= x2 and y1 <= py <= y2:
+                    corner_points.append(point)
+
+            if len(corner_points) < 5:  # 提高最低点数要求
+                # 如果点太少,使用默认值
+                radius = int(min(w, h) * 0.08)
+            else:
+                # 计算该角的近似圆角半径
+                # 方法:拟合圆弧,计算半径
+                try:
+                    # 计算点到角点的距离,使用下四分位数(更保守)
+                    corner_x = x1 if 'left' in corner_name else x2
+                    corner_y = y1 if 'top' in corner_name else y2
+
+                    distances = []
+                    for point in corner_points:
+                        px, py = point[0]
+                        dist = np.sqrt((px - corner_x)**2 + (py - corner_y)**2)
+                        distances.append(dist)
+
+                    # 使用25%分位数(Q1)作为圆角半径,更稳健,避免异常值影响
+                    if len(distances) > 0:
+                        radius = int(np.percentile(distances, 25))
+                    else:
+                        radius = int(min(w, h) * 0.08)
+                except:
+                    radius = int(min(w, h) * 0.08)
+
+            # 限制范围
+            radius = max(5, min(radius, min(w, h) // 3))
+            corner_radii[corner_name] = radius
+
+            # 调试日志
+            print(f"[圆角检测] {corner_name}: 轮廓点数={len(corner_points)}, 半径={radius}px", flush=True)
+
+        # === 判断是否使用统一圆角 ===
+        radii_values = list(corner_radii.values())
+        avg_radius = int(np.mean(radii_values))
+        std_radius = np.std(radii_values)
+
+        # 如果标准差小于平均值的20%,认为圆角统一
+        use_uniform = (std_radius < avg_radius * 0.2)
+
+        print(f"[圆角检测] 平均半径={avg_radius}px, 标准差={std_radius:.1f}, 使用统一圆角={use_uniform}", flush=True)
+
+        return {
+            'uniform': avg_radius,
+            'corners': corner_radii,
+            'use_uniform': use_uniform
+        }
+
+    def detect_shadow(self, contour_info, sample_distance=10, num_samples=20):
+        """
+        基于规则矩形边界检测阴影效果（分方向：上下左右）
+
+        Args:
+            contour_info: 轮廓信息字典
+            sample_distance: 采样距离（像素）
+            num_samples: 每条边的采样点数量
+
+        Returns:
+            阴影属性字典 {
+                'has_inner_shadow': bool,
+                'has_outer_shadow': bool,
+                'inner_strength': float (0-1),
+                'outer_strength': float (0-1),
+                'blur_radius': int,
+                'direction_info': {  # 各方向详细信息
+                    'top': {...},
+                    'bottom': {...},
+                    'left': {...},
+                    'right': {...}
+                }
+            }
+        """
+        if self.original_image is None:
+            self.load_image()
+
+        gray = cv2.cvtColor(self.original_image, cv2.COLOR_BGR2GRAY)
+        x, y, w, h = contour_info['bounding_box']
+        contour_type = contour_info.get('type', 'unknown')
+
+        # 图像中心亮度（作为参考基准）
+        img_h, img_w = gray.shape
+        center_samples = []
+        for _ in range(10):
+            cx = np.random.randint(x + w//4, x + 3*w//4)
+            cy = np.random.randint(y + h//4, y + 3*h//4)
+            if 0 <= cx < img_w and 0 <= cy < img_h:
+                center_samples.append(gray[cy, cx])
+        center_brightness = np.mean(center_samples) if len(center_samples) > 0 else 128
+
+        # 分方向检测
+        direction_info = {}
+
+        # === 上边 (Top) ===
+        top_inner = []
+        top_outer = []
+        for i in range(num_samples):
+            px = x + int(w * (i + 0.5) / num_samples)
+            py = y
+            # 向内采样
+            if 0 <= px < img_w and 0 <= py + sample_distance < img_h:
+                top_inner.append(gray[py + sample_distance, px])
+            # 向外采样
+            if 0 <= px < img_w and 0 <= py - sample_distance < img_h:
+                top_outer.append(gray[py - sample_distance, px])
+
+        direction_info['top'] = {
+            'inner_avg': np.mean(top_inner) if len(top_inner) > 0 else center_brightness,
+            'outer_avg': np.mean(top_outer) if len(top_outer) > 0 else center_brightness
+        }
+
+        # === 下边 (Bottom) ===
+        bottom_inner = []
+        bottom_outer = []
+        for i in range(num_samples):
+            px = x + int(w * (i + 0.5) / num_samples)
+            py = y + h - 1
+            # 向内采样
+            if 0 <= px < img_w and 0 <= py - sample_distance < img_h:
+                bottom_inner.append(gray[py - sample_distance, px])
+            # 向外采样
+            if 0 <= px < img_w and 0 <= py + sample_distance < img_h:
+                bottom_outer.append(gray[py + sample_distance, px])
+
+        direction_info['bottom'] = {
+            'inner_avg': np.mean(bottom_inner) if len(bottom_inner) > 0 else center_brightness,
+            'outer_avg': np.mean(bottom_outer) if len(bottom_outer) > 0 else center_brightness
+        }
+
+        # === 左边 (Left) ===
+        left_inner = []
+        left_outer = []
+        for i in range(num_samples):
+            px = x
+            py = y + int(h * (i + 0.5) / num_samples)
+            # 向内采样
+            if 0 <= px + sample_distance < img_w and 0 <= py < img_h:
+                left_inner.append(gray[py, px + sample_distance])
+            # 向外采样
+            if 0 <= px - sample_distance < img_w and 0 <= py < img_h:
+                left_outer.append(gray[py, px - sample_distance])
+
+        direction_info['left'] = {
+            'inner_avg': np.mean(left_inner) if len(left_inner) > 0 else center_brightness,
+            'outer_avg': np.mean(left_outer) if len(left_outer) > 0 else center_brightness
+        }
+
+        # === 右边 (Right) ===
+        right_inner = []
+        right_outer = []
+        for i in range(num_samples):
+            px = x + w - 1
+            py = y + int(h * (i + 0.5) / num_samples)
+            # 向内采样
+            if 0 <= px - sample_distance < img_w and 0 <= py < img_h:
+                right_inner.append(gray[py, px - sample_distance])
+            # 向外采样
+            if 0 <= px + sample_distance < img_w and 0 <= py < img_h:
+                right_outer.append(gray[py, px + sample_distance])
+
+        direction_info['right'] = {
+            'inner_avg': np.mean(right_inner) if len(right_inner) > 0 else center_brightness,
+            'outer_avg': np.mean(right_outer) if len(right_outer) > 0 else center_brightness
+        }
+
+        # === 综合判断 ===
+        has_inner_shadow = False
+        has_outer_shadow = False
+        inner_strength = 0.0
+        outer_strength = 0.0
+
+        # 内阴影：边缘内侧比中心暗（排除左右边，因为可能是产品弧度）
+        inner_darkness_list = []
+        for direction in ['top', 'bottom']:  # 只检测上下边
+            inner_avg = direction_info[direction]['inner_avg']
+            if center_brightness - inner_avg > 10:  # 内侧比中心暗10+
+                inner_darkness_list.append(center_brightness - inner_avg)
+
+        if len(inner_darkness_list) > 0:
+            has_inner_shadow = True
+            inner_strength = min(1.0, np.mean(inner_darkness_list) / 50.0)
+
+        # 外阴影：边缘外侧比背景暗（检测所有方向）
+        outer_darkness_list = []
+        for direction in ['top', 'bottom', 'left', 'right']:
+            outer_avg = direction_info[direction]['outer_avg']
+            # 外侧暗度 = 255 - 外侧亮度
+            outer_darkness = 255 - outer_avg
+            if outer_darkness > 30:  # 外侧暗度 > 30
+                outer_darkness_list.append(outer_darkness)
+
+        if len(outer_darkness_list) > 0:
+            has_outer_shadow = True
+            outer_strength = min(1.0, np.mean(outer_darkness_list) / 100.0)
+
+        # 估算模糊半径
+        blur_radius = int(2 + max(inner_strength, outer_strength) * 3)
+
+        return {
+            'has_inner_shadow': has_inner_shadow,
+            'has_outer_shadow': has_outer_shadow,
+            'inner_strength': round(inner_strength, 2),
+            'outer_strength': round(outer_strength, 2),
+            'blur_radius': blur_radius,
+            'direction_info': direction_info
+        }

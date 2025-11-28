@@ -22,6 +22,9 @@ logs/
 test_output*.svg
 test_output*.jpg
 
+# 本地讨论记录(不提交)
+CONVERSATION_LOG.md
+
 # IDE
 .vscode/
 .idea/

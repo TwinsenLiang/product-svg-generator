@@ -173,18 +173,87 @@ def generate_svg():
             x, y, w, h = contour_info['bounding_box']
 
             if contour_type == 'body':
-                # 主体：使用圆角矩形
-                rx, ry = int(w * 0.1), int(h * 0.02)  # 圆角半径
-                svg_shapes.append(
-                    f'  <rect x="{x}" y="{y}" width="{w}" height="{h}" '
-                    f'rx="{rx}" ry="{ry}" fill="#{color_hex}" />'
+                # 主体：使用规则矩形 + 动态圆角检测 + 渐变填充
+                # 检测圆角半径（支持统一圆角和分段圆角）
+                corner_info = processor.detect_corner_radius(contour_info)
+
+                # 创建渐变定义（从左到右的金属质感）
+                gradient_id = "bodyGradient"
+                svg_shapes.insert(0,
+                    f'  <defs>\n'
+                    f'    <linearGradient id="{gradient_id}" x1="0%" y1="0%" x2="100%" y2="0%">\n'
+                    f'      <stop offset="0%" style="stop-color:#{color_hex};stop-opacity:1" />\n'
+                    f'      <stop offset="50%" style="stop-color:#ffffff;stop-opacity:0.3" />\n'
+                    f'      <stop offset="100%" style="stop-color:#{color_hex};stop-opacity:1" />\n'
+                    f'    </linearGradient>\n'
+                    f'  </defs>'
                 )
+
+                # 根据检测结果选择渲染方式
+                if corner_info['use_uniform']:
+                    # 使用统一圆角的简单矩形
+                    uniform_r = corner_info['uniform']
+                    svg_shapes.append(
+                        f'  <rect x="{x}" y="{y}" width="{w}" height="{h}" '
+                        f'rx="{uniform_r}" ry="{uniform_r}" '
+                        f'fill="url(#{gradient_id})" />'
+                    )
+                    print(f"[主体渲染] 使用统一圆角: r={uniform_r}", flush=True)
+                else:
+                    # 使用分段圆角的path路径
+                    corners = corner_info['corners']
+                    r_tl = corners['top_left']
+                    r_tr = corners['top_right']
+                    r_bl = corners['bottom_left']
+                    r_br = corners['bottom_right']
+
+                    # 构建带四个不同圆角的路径
+                    # 从左上角开始，顺时针绘制
+                    path_d = (
+                        f"M {x + r_tl},{y} "  # 移动到左上角弧线起点
+                        f"L {x + w - r_tr},{y} "  # 上边线
+                        f"Q {x + w},{y} {x + w},{y + r_tr} "  # 右上角圆弧
+                        f"L {x + w},{y + h - r_br} "  # 右边线
+                        f"Q {x + w},{y + h} {x + w - r_br},{y + h} "  # 右下角圆弧
+                        f"L {x + r_bl},{y + h} "  # 下边线
+                        f"Q {x},{y + h} {x},{y + h - r_bl} "  # 左下角圆弧
+                        f"L {x},{y + r_tl} "  # 左边线
+                        f"Q {x},{y} {x + r_tl},{y} Z"  # 左上角圆弧，闭合
+                    )
+                    svg_shapes.append(
+                        f'  <path d="{path_d}" fill="url(#{gradient_id})" />'
+                    )
+                    print(f"[主体渲染] 使用分段圆角: tl={r_tl}, tr={r_tr}, bl={r_bl}, br={r_br}", flush=True)
             elif contour_type == 'circle_control':
-                # 圆形控制区：使用圆形
+                # 圆形控制区：使用圆形 + 径向渐变模拟立体感
                 cx, cy = x + w // 2, y + h // 2
                 r = min(w, h) // 2
+
+                # 创建径向渐变定义（中心亮，边缘暗）
+                gradient_id = "circleGradient"
+                if '<defs>' not in svg_shapes[0]:
+                    svg_shapes.insert(0, '  <defs>')
+
+                # 在defs标签内插入渐变定义
+                defs_content = (
+                    f'    <radialGradient id="{gradient_id}">\n'
+                    f'      <stop offset="30%" style="stop-color:#ffffff;stop-opacity:0.3" />\n'
+                    f'      <stop offset="100%" style="stop-color:#{color_hex};stop-opacity:1" />\n'
+                    f'    </radialGradient>'
+                )
+
+                # 找到defs位置并插入
+                for i, shape in enumerate(svg_shapes):
+                    if '</defs>' in shape:
+                        svg_shapes[i] = shape.replace('</defs>', f'\n{defs_content}\n  </defs>')
+                        break
+                else:
+                    # 如果没有找到closing defs标签，直接添加
+                    svg_shapes.insert(1, defs_content)
+                    svg_shapes.insert(2, '  </defs>')
+
                 svg_shapes.append(
-                    f'  <circle cx="{cx}" cy="{cy}" r="{r}" fill="#{color_hex}" />'
+                    f'  <circle cx="{cx}" cy="{cy}" r="{r}" fill="url(#{gradient_id})" />'
                 )
             elif contour_type == 'small_dot':
                 # 小圆点：使用小圆形
@@ -194,70 +263,172 @@ def generate_svg():
                     f'  <circle cx="{cx}" cy="{cy}" r="{r}" fill="#{color_hex}" />'
                 )
             elif contour_type == 'button':
-                # 按钮：使用圆形
+                # 按钮：根据形状类型选择合适的SVG元素
                 cx, cy = x + w // 2, y + h // 2
                 r = min(w, h) // 2
-                svg_shapes.append(
-                    f'  <circle cx="{cx}" cy="{cy}" r="{r}" fill="#{color_hex}" />'
-                )
+                shape_type = contour_info.get('shape', 'circle')
+                shadow_info = contour_info.get('shadow', {})
 
-                # 根据位置推断按钮类型并添加内容
-                # 按钮通常在下半部分，左边是MENU，右边是播放/暂停
-                if len(buttons) >= 2:
-                    # 按X坐标排序
-                    buttons_sorted = sorted(buttons, key=lambda b: b['bounding_box'][0])
-                    # 使用 bounding_box 的 X 坐标来确定按钮索引
-                    button_index = next((i for i, b in enumerate(buttons_sorted)
-                                        if b['bounding_box'][0] == contour_info['bounding_box'][0]
-                                        and b['bounding_box'][1] == contour_info['bounding_box'][1]), -1)
+                # 根据检测到的阴影生成滤镜
+                filter_id = None
+                if shadow_info.get('has_inner_shadow') or shadow_info.get('has_outer_shadow'):
+                    blur_radius = shadow_info.get('blur_radius', 2)
 
-                    if button_index < 0:
-                        continue  # 无法识别，跳过文字/图标添加
+                    if shadow_info.get('has_inner_shadow'):
+                        # 内阴影滤镜
+                        filter_id = "innerShadow"
+                        if not any(filter_id in shape for shape in svg_shapes):
+                            strength = shadow_info.get('inner_strength', 0.5)
+                            inner_shadow_filter = (
+                                f'    <filter id="{filter_id}">\n'
+                                f'      <feGaussianBlur in="SourceGraphic" stdDeviation="{blur_radius}" result="blur"/>\n'
+                                f'      <feOffset in="blur" dx="0" dy="1" result="offset"/>\n'
+                                f'      <feComposite in="offset" in2="SourceGraphic" operator="out" result="inverse"/>\n'
+                                f'      <feFlood flood-color="black" flood-opacity="{strength}" result="color"/>\n'
+                                f'      <feComposite in="color" in2="inverse" operator="in" result="shadow"/>\n'
+                                f'      <feComposite in="shadow" in2="SourceGraphic" operator="over"/>\n'
+                                f'    </filter>'
+                            )
+                            for i, shape in enumerate(svg_shapes):
+                                if '</defs>' in shape:
+                                    svg_shapes[i] = shape.replace('</defs>', f'\n{inner_shadow_filter}\n  </defs>')
+                                    break
 
-                    # 计算对比色（用于文字）
-                    # 如果背景深色，文字用白色；背景浅色，文字用黑色
-                    r_val = int(color_hex[0:2], 16)
-                    g_val = int(color_hex[2:4], 16)
-                    b_val = int(color_hex[4:6], 16)
-                    brightness = (r_val * 299 + g_val * 587 + b_val * 114) / 1000
-                    text_color = 'white' if brightness < 128 else 'black'
+                    elif shadow_info.get('has_outer_shadow'):
+                        # 外阴影滤镜（drop shadow）
+                        filter_id = "outerShadow"
+                        if not any(filter_id in shape for shape in svg_shapes):
+                            strength = shadow_info.get('outer_strength', 0.5)
+                            outer_shadow_filter = (
+                                f'    <filter id="{filter_id}">\n'
+                                f'      <feGaussianBlur in="SourceAlpha" stdDeviation="{blur_radius}"/>\n'
+                                f'      <feOffset dx="0" dy="2" result="offsetblur"/>\n'
+                                f'      <feComponentTransfer>\n'
+                                f'        <feFuncA type="linear" slope="{strength}"/>\n'
+                                f'      </feComponentTransfer>\n'
+                                f'      <feMerge>\n'
+                                f'        <feMergeNode/>\n'
+                                f'        <feMergeNode in="SourceGraphic"/>\n'
+                                f'      </feMerge>\n'
+                                f'    </filter>'
+                            )
+                            for i, shape in enumerate(svg_shapes):
+                                if '</defs>' in shape:
+                                    svg_shapes[i] = shape.replace('</defs>', f'\n{outer_shadow_filter}\n  </defs>')
+                                    break
+                else:
+                    # 没有检测到阴影，使用默认外阴影
+                    filter_id = "buttonShadow"
+                    if not any(filter_id in shape for shape in svg_shapes):
+                        shadow_filter = (
+                            f'    <filter id="{filter_id}">\n'
+                            f'      <feGaussianBlur in="SourceAlpha" stdDeviation="2"/>\n'
+                            f'      <feOffset dx="0" dy="2" result="offsetblur"/>\n'
+                            f'      <feComponentTransfer>\n'
+                            f'        <feFuncA type="linear" slope="0.5"/>\n'
+                            f'      </feComponentTransfer>\n'
+                            f'      <feMerge>\n'
+                            f'        <feMergeNode/>\n'
+                            f'        <feMergeNode in="SourceGraphic"/>\n'
+                            f'      </feMerge>\n'
+                            f'    </filter>'
+                        )
+                        for i, shape in enumerate(svg_shapes):
+                            if '</defs>' in shape:
+                                svg_shapes[i] = shape.replace('</defs>', f'\n{shadow_filter}\n  </defs>')
+                                break
 
-                    if button_index == 0:
-                        # 左边按钮：MENU
-                        font_size = int(r * 0.35)
-                        svg_texts.append(
-                            f'  <text x="{cx}" y="{cy}" '
-                            f'font-family="Arial, sans-serif" font-size="{font_size}" '
-                            f'font-weight="bold" '
-                            f'fill="{text_color}" text-anchor="middle" dominant-baseline="central">'
-                            f'MENU</text>'
+                # 根据形状类型生成SVG
+                if shape_type == 'cross':
+                    # 十字形：使用路径
+                    # 构建十字形路径（中心cx,cy，臂长r）
+                    arm_width = r * 0.4  # 十字臂宽度
+                    arm_length = r  # 十字臂长度
+                    cross_path = (
+                        f"M {cx - arm_width},{cy - arm_length} "
+                        f"L {cx + arm_width},{cy - arm_length} "
+                        f"L {cx + arm_width},{cy - arm_width} "
+                        f"L {cx + arm_length},{cy - arm_width} "
+                        f"L {cx + arm_length},{cy + arm_width} "
+                        f"L {cx + arm_width},{cy + arm_width} "
+                        f"L {cx + arm_width},{cy + arm_length} "
+                        f"L {cx - arm_width},{cy + arm_length} "
+                        f"L {cx - arm_width},{cy + arm_width} "
+                        f"L {cx - arm_length},{cy + arm_width} "
+                        f"L {cx - arm_length},{cy - arm_width} "
+                        f"L {cx - arm_width},{cy - arm_width} Z"
+                    )
+                    filter_attr = f'filter="url(#{filter_id})"' if filter_id else ''
+                    svg_shapes.append(
+                        f'  <path d="{cross_path}" fill="#{color_hex}" {filter_attr} />'
+                    )
+                elif shape_type == 'rectangle':
+                    # 矩形/方形（使用动态圆角检测）
+                    corner_info = processor.detect_corner_radius(contour_info)
+                    filter_attr = f'filter="url(#{filter_id})"' if filter_id else ''
+
+                    # 按钮通常使用统一圆角，但也支持分段圆角
+                    if corner_info['use_uniform']:
+                        svg_shapes.append(
+                            f'  <rect x="{x}" y="{y}" width="{w}" height="{h}" '
+                            f'rx="{corner_info["uniform"]}" ry="{corner_info["uniform"]}" '
+                            f'fill="#{color_hex}" {filter_attr} />'
                         )
-                    elif button_index == 1:
-                        # 右边按钮：播放/暂停图标
-                        icon_size = r * 0.5
-                        # 播放三角形
-                        play_x = cx - icon_size * 0.3
-                        play_points = (
-                            f"{play_x},{cy - icon_size * 0.4} "
-                            f"{play_x},{cy + icon_size * 0.4} "
-                            f"{play_x + icon_size * 0.6},{cy}"
+                    else:
+                        # 分段圆角path
+                        corners = corner_info['corners']
+                        r_tl = corners['top_left']
+                        r_tr = corners['top_right']
+                        r_bl = corners['bottom_left']
+                        r_br = corners['bottom_right']
+
+                        path_d = (
+                            f"M {x + r_tl},{y} "
+                            f"L {x + w - r_tr},{y} "
+                            f"Q {x + w},{y} {x + w},{y + r_tr} "
+                            f"L {x + w},{y + h - r_br} "
+                            f"Q {x + w},{y + h} {x + w - r_br},{y + h} "
+                            f"L {x + r_bl},{y + h} "
+                            f"Q {x},{y + h} {x},{y + h - r_bl} "
+                            f"L {x},{y + r_tl} "
+                            f"Q {x},{y} {x + r_tl},{y} Z"
                         )
-                        svg_texts.append(
-                            f'  <polygon points="{play_points}" fill="{text_color}" />'
+                        svg_shapes.append(
+                            f'  <path d="{path_d}" fill="#{color_hex}" {filter_attr} />'
                         )
-                        # 暂停双竖线
-                        pause_x = cx + icon_size * 0.2
-                        pause_width = icon_size * 0.15
-                        pause_height = icon_size * 0.8
-                        pause_y = cy - pause_height / 2
-                        svg_texts.append(
-                            f'  <rect x="{pause_x}" y="{pause_y}" '
-                            f'width="{pause_width}" height="{pause_height}" fill="{text_color}" />'
+                elif shape_type == 'line':
+                    # 线条（如 "-" 号）
+                    # 使用矩形表示，但不添加圆角
+                    filter_attr = f'filter="url(#{filter_id})"' if filter_id else ''
+                    svg_shapes.append(
+                        f'  <rect x="{x}" y="{y}" width="{w}" height="{h}" '
+                        f'fill="#{color_hex}" {filter_attr} />'
+                    )
+                elif shape_type == 'triangle':
+                    # 三角形：使用轮廓近似
+                    epsilon = 0.04 * cv2.arcLength(contour_info['contour'], True)
+                    approx = cv2.approxPolyDP(contour_info['contour'], epsilon, True)
+                    filter_attr = f'filter="url(#{filter_id})"' if filter_id else ''
+                    if len(approx) == 3:
+                        points = " ".join([f"{p[0][0]},{p[0][1]}" for p in approx])
+                        svg_shapes.append(
+                            f'  <polygon points="{points}" fill="#{color_hex}" {filter_attr} />'
                         )
-                        svg_texts.append(
-                            f'  <rect x="{pause_x + pause_width * 1.8}" y="{pause_y}" '
-                            f'width="{pause_width}" height="{pause_height}" fill="{text_color}" />'
+                    else:
+                        # 降级为圆形
+                        svg_shapes.append(
+                            f'  <circle cx="{cx}" cy="{cy}" r="{r}" fill="#{color_hex}" {filter_attr} />'
                         )
+                else:
+                    # 默认：圆形或复杂形状
+                    filter_attr = f'filter="url(#{filter_id})"' if filter_id else ''
+                    svg_shapes.append(
+                        f'  <circle cx="{cx}" cy="{cy}" r="{r}" fill="#{color_hex}" {filter_attr} />'
+                    )
+
+                # TODO: 集成OCR文字识别
+                # 当检测到按钮上有文字时，自动提取并添加到SVG
+                # 暂时移除硬编码的"MENU"和"播放/暂停"内容
 
         # 合并图形和文字/图标元素
         all_svg_elements = svg_shapes + svg_texts
