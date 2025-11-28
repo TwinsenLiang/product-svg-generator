@@ -1,79 +1,340 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="zh-CN" class="h-full bg-gray-50">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>产品SVG生成器</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Custom Tailwind Config -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: {
+                            50: '#f0f4ff',
+                            100: '#e0e9ff',
+                            500: '#4361ee',
+                            600: '#3f37c9',
+                            700: '#2d2a7d'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        /* Custom styles */
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        /* Smooth scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+
+        .marker {
+            position: absolute;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            border: 2px solid white;
+            z-index: 1000;
+            pointer-events: none;
+            box-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+            color: white;
+        }
+
+        .marker-original {
+            background-color: red;
+        }
+
+        .marker-svg {
+            background-color: blue;
+        }
+
+        /* 产品上传区域样式 */
+        .product-upload-area {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .product-upload-area:hover {
+            background-color: rgba(99, 102, 241, 0.05);
+        }
+
+        .upload-icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+        }
+
+        .upload-hint {
+            font-size: 0.875rem;
+            color: #9ca3af;
+        }
+    </style>
 </head>
-<body>
-    <div class="container">
-        <header>
-            <h1>产品SVG生成器</h1>
-            <p class="subtitle">智能图像分析与SVG矢量图生成工具</p>
-        </header>
-        
-        <div class="comparison-area">
-            <div class="image-container">
-                <h2 class="section-title">产品原图</h2>
-                <div class="svg-container" id="original-container" style="cursor: crosshair;">
-                    <!-- 产品图片上传区 -->
-                    <div class="product-upload-area" id="product-upload-area">
-                        <div class="upload-icon">📷</div>
-                        <p>点击或拖拽上传产品图片</p>
-                        <p class="upload-hint">支持 JPG、PNG 格式</p>
-                        <input type="file" id="product-image-upload" accept="image/jpeg,image/png,image/jpg" style="display: none;">
+<body class="h-full">
+
+    <!-- Header -->
+    <header class="gradient-bg text-white shadow-2xl">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    <div class="flex items-center justify-center w-12 h-12 bg-white/20 rounded-xl backdrop-blur-md">
+                        <i class="fas fa-vector-square text-2xl"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-2xl font-bold tracking-tight">产品SVG生成器</h1>
+                        <p class="text-blue-100 text-sm">智能图像分析与SVG矢量图生成工具</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <div class="hidden sm:flex items-center space-x-2 bg-white/10 rounded-lg px-4 py-2">
+                        <div class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                        <span class="text-sm font-medium">系统运行中</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
+        <!-- Image Comparison Section -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+
+            <!-- Original Image -->
+            <div class="bg-white rounded-2xl shadow-xl overflow-hidden">
+                <div class="bg-gradient-to-r from-gray-50 to-gray-100 px-6 py-4 border-b border-gray-200">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center space-x-3">
+                            <div class="flex items-center justify-center w-8 h-8 bg-blue-100 rounded-lg">
+                                <i class="fas fa-image text-blue-600"></i>
+                            </div>
+                            <h2 class="text-lg font-semibold text-gray-900">产品原图</h2>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="p-4">
+                    <div id="original-container" class="relative bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg border border-blue-200 overflow-hidden" style="height: 600px; cursor: crosshair;">
+                        <!-- 产品图片上传区 -->
+                        <div class="product-upload-area" id="product-upload-area">
+                            <div class="upload-icon">📷</div>
+                            <p class="text-gray-700 text-lg mb-2">点击或拖拽上传产品图片</p>
+                            <p class="upload-hint">支持 JPG、PNG 格式</p>
+                            <input type="file" id="product-image-upload" accept="image/jpeg,image/png,image/jpg" style="display: none;">
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <div class="image-container">
-                <h2 class="section-title">产品SVG</h2>
-                <div class="svg-container" id="svg-container" style="cursor: crosshair;">
-                    <!-- Generated SVG will be displayed here -->
+            <!-- Generated SVG -->
+            <div class="bg-white rounded-2xl shadow-xl overflow-hidden">
+                <div class="bg-gradient-to-r from-purple-50 to-pink-100 px-6 py-4 border-b border-purple-200">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center space-x-3">
+                            <div class="flex items-center justify-center w-8 h-8 bg-purple-100 rounded-lg">
+                                <i class="fas fa-bezier-curve text-purple-600"></i>
+                            </div>
+                            <h2 class="text-lg font-semibold text-gray-900">产品SVG</h2>
+                        </div>
+                        <button id="export-svg-btn" class="text-gray-500 hover:text-gray-700 transition-colors" title="导出SVG" style="display: none;">
+                            <i class="fas fa-download"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="p-4">
+                    <div id="svg-container" class="relative bg-gradient-to-br from-purple-50 to-pink-50 rounded-lg border border-purple-200 overflow-hidden" style="height: 600px; cursor: crosshair;">
+                        <!-- Generated SVG will be displayed here -->
+                    </div>
                 </div>
             </div>
         </div>
-        
-        <div class="controls">
-            <div class="button-group">
-                <button id="change-image-btn" class="btn btn-outline">更换图片</button>
-                <button id="generate-btn" class="btn">智能生成</button>
-                <button id="export-svg-btn" class="btn btn-outline" style="display: none;">导出SVG</button>
-                <button id="outline-btn" class="btn btn-outline">标出轮廓</button>
-                <button id="compare-btn" class="btn btn-outline">标记校验</button>
-            </div>
-            <input type="file" id="change-image-upload" accept="image/jpeg,image/png,image/jpg" style="display: none;">
-        </div>
-        
-        <div class="debug-info">
-            <h2>调试信息</h2>
-            <div style="text-align: right; margin-bottom: 10px;">
-                <button id="copy-debug-btn" class="btn btn-outline" style="min-width: 100px; padding: 8px 16px; font-size: 14px;">复制信息</button>
-            </div>
-            <div id="debug-content">
-                <!-- Debug information will be displayed here -->
-            </div>
-        </div>
-        
-        <div class="upload-section">
-            <h2>上传调试图片</h2>
-            <p class="subtitle">上传截图帮助调试算法差异</p>
-            <form id="upload-form" enctype="multipart/form-data">
-                <div class="upload-area" id="upload-area">
-                    <p>点击或拖拽图片到此处上传</p>
-                    <input type="file" id="image-upload" name="image" accept="image/*" style="display: none;">
+
+        <!-- Controls Section -->
+        <div class="bg-white rounded-2xl shadow-xl overflow-hidden mb-8">
+            <div class="bg-gradient-to-r from-green-50 to-emerald-100 px-6 py-4 border-b border-green-200">
+                <div class="flex items-center space-x-3">
+                    <div class="flex items-center justify-center w-8 h-8 bg-green-100 rounded-lg">
+                        <i class="fas fa-cogs text-green-600"></i>
+                    </div>
+                    <h2 class="text-lg font-semibold text-gray-900">操作控制</h2>
                 </div>
-                <button type="submit" class="btn" id="upload-btn">上传图片</button>
-            </form>
-            <div id="upload-result"></div>
+            </div>
+
+            <div class="p-6">
+                <div class="flex flex-wrap justify-center gap-4">
+                    <button id="change-image-btn" class="px-6 py-3 bg-white text-gray-700 border-2 border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-all font-medium">
+                        <i class="fas fa-sync-alt mr-2"></i>
+                        <span>更换图片</span>
+                    </button>
+                    <button id="generate-btn" class="px-8 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all font-medium text-lg shadow-lg hover:shadow-xl">
+                        <i class="fas fa-magic mr-2"></i>
+                        <span>智能生成</span>
+                    </button>
+                    <button id="outline-btn" class="px-6 py-3 bg-white text-blue-600 border-2 border-blue-600 rounded-lg hover:bg-blue-600 hover:text-white transition-all font-medium">
+                        <i class="fas fa-draw-polygon mr-2"></i>
+                        <span>标出轮廓</span>
+                    </button>
+                    <button id="compare-btn" class="px-6 py-3 bg-white text-purple-600 border-2 border-purple-600 rounded-lg hover:bg-purple-600 hover:text-white transition-all font-medium">
+                        <i class="fas fa-check-double mr-2"></i>
+                        <span>标记校验</span>
+                    </button>
+                </div>
+                <input type="file" id="change-image-upload" accept="image/jpeg,image/png,image/jpg" style="display: none;">
+            </div>
         </div>
-        
-        <footer>
-            <p>Auto SVG Generator &copy; 2025 | 智能图像分析工具</p>
-        </footer>
+
+        <!-- Debug Info Section -->
+        <div class="bg-white rounded-2xl shadow-xl overflow-hidden mb-8">
+            <div class="bg-gradient-to-r from-indigo-50 to-blue-100 px-6 py-4 border-b border-indigo-200">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center space-x-3">
+                        <div class="flex items-center justify-center w-8 h-8 bg-indigo-100 rounded-lg">
+                            <i class="fas fa-bug text-indigo-600"></i>
+                        </div>
+                        <h2 class="text-lg font-semibold text-gray-900">调试信息</h2>
+                    </div>
+                    <button id="copy-debug-btn" class="px-4 py-2 bg-white text-indigo-600 border border-indigo-300 rounded-lg hover:bg-indigo-50 transition-colors text-sm font-medium">
+                        <i class="fas fa-copy mr-2"></i>
+                        复制信息
+                    </button>
+                </div>
+            </div>
+
+            <div class="p-6">
+                <div class="relative">
+                    <div class="absolute inset-0 bg-gradient-to-br from-indigo-50 to-blue-50 opacity-50 rounded-lg"></div>
+                    <div id="debug-content" class="relative bg-white/90 backdrop-blur-sm border border-indigo-200 rounded-lg p-4 font-mono text-sm max-h-96 overflow-y-auto">
+                        等待操作...
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Upload Section -->
+        <div class="bg-white rounded-2xl shadow-xl overflow-hidden mb-8">
+            <div class="bg-gradient-to-r from-orange-50 to-amber-100 px-6 py-4 border-b border-orange-200">
+                <div class="flex items-center space-x-3">
+                    <div class="flex items-center justify-center w-8 h-8 bg-orange-100 rounded-lg">
+                        <i class="fas fa-upload text-orange-600"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-lg font-semibold text-gray-900">上传调试图片</h2>
+                        <p class="text-sm text-gray-600">上传截图帮助调试算法差异</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-6">
+                <form id="upload-form" enctype="multipart/form-data">
+                    <div id="upload-area" class="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center hover:border-blue-500 hover:bg-blue-50 transition-all cursor-pointer">
+                        <div class="flex flex-col items-center">
+                            <i class="fas fa-cloud-upload-alt text-5xl text-gray-400 mb-4"></i>
+                            <p class="text-gray-600 text-lg mb-2">点击或拖拽图片到此处上传</p>
+                            <p class="text-gray-400 text-sm">支持 JPG、PNG 等图片格式</p>
+                        </div>
+                        <input type="file" id="image-upload" name="image" accept="image/*" style="display: none;">
+                    </div>
+                    <div class="mt-4 text-center">
+                        <button type="submit" id="upload-btn" class="px-8 py-3 bg-gradient-to-r from-orange-500 to-orange-600 text-white rounded-lg hover:from-orange-600 hover:to-orange-700 transition-all font-medium shadow-lg hover:shadow-xl">
+                            <i class="fas fa-upload mr-2"></i>
+                            上传图片
+                        </button>
+                    </div>
+                    <div id="upload-result" class="mt-4"></div>
+                </form>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="mt-12 bg-gray-900 text-white">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                <div>
+                    <h4 class="text-lg font-semibold mb-4">系统信息</h4>
+                    <div class="space-y-2 text-sm text-gray-400">
+                        <div>版本: v1.0.0</div>
+                        <div>设备: 树莓派 5</div>
+                        <div>状态: <span class="text-green-400">在线</span></div>
+                    </div>
+                </div>
+                <div>
+                    <h4 class="text-lg font-semibold mb-4">功能特性</h4>
+                    <div class="space-y-2 text-sm text-gray-400">
+                        <div><i class="fas fa-check mr-2 text-green-400"></i>智能轮廓识别</div>
+                        <div><i class="fas fa-check mr-2 text-green-400"></i>SVG 矢量图生成</div>
+                        <div><i class="fas fa-check mr-2 text-green-400"></i>实时预览对比</div>
+                    </div>
+                </div>
+                <div>
+                    <h4 class="text-lg font-semibold mb-4">快捷键</h4>
+                    <div class="space-y-1 text-sm text-gray-400">
+                        <div><kbd class="px-2 py-1 bg-gray-700 rounded">G</kbd> 智能生成</div>
+                        <div><kbd class="px-2 py-1 bg-gray-700 rounded">O</kbd> 标出轮廓</div>
+                        <div><kbd class="px-2 py-1 bg-gray-700 rounded">C</kbd> 标记校验</div>
+                    </div>
+                </div>
+            </div>
+            <div class="mt-8 pt-8 border-t border-gray-800 text-center text-sm text-gray-400">
+                <p>&copy; 2025 Auto SVG Generator. 保留所有权利.</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed bottom-4 right-4 transform translate-x-full transition-transform duration-300 ease-out z-50">
+        <div class="bg-white rounded-lg shadow-lg p-4 flex items-center space-x-3 min-w-[300px] border border-gray-200">
+            <div id="toastIcon" class="flex-shrink-0"></div>
+            <div class="flex-1">
+                <div id="toastTitle" class="text-sm font-medium text-gray-900"></div>
+                <div id="toastMessage" class="text-sm text-gray-500"></div>
+            </div>
+            <button onclick="hideToast()" class="text-gray-400 hover:text-gray-600">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
     </div>
-    
+
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
 </html>

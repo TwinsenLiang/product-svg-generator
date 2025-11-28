@@ -1,3 +1,43 @@
+// ============================================================
+// Toast 通知系统
+// ============================================================
+
+function showToast(title, message, type = 'info') {
+    const toast = document.getElementById('toast');
+    const toastIcon = document.getElementById('toastIcon');
+    const toastTitle = document.getElementById('toastTitle');
+    const toastMessage = document.getElementById('toastMessage');
+
+    // 设置图标
+    const icons = {
+        success: '<i class="fas fa-check-circle text-green-500 text-xl"></i>',
+        error: '<i class="fas fa-exclamation-circle text-red-500 text-xl"></i>',
+        warning: '<i class="fas fa-exclamation-triangle text-yellow-500 text-xl"></i>',
+        info: '<i class="fas fa-info-circle text-blue-500 text-xl"></i>'
+    };
+
+    toastIcon.innerHTML = icons[type] || icons.info;
+    toastTitle.textContent = title;
+    toastMessage.textContent = message;
+
+    // 显示 toast
+    toast.classList.remove('translate-x-full');
+
+    // 自动隐藏
+    setTimeout(() => {
+        hideToast();
+    }, 3000);
+}
+
+function hideToast() {
+    const toast = document.getElementById('toast');
+    toast.classList.add('translate-x-full');
+}
+
+// ============================================================
+// 原有代码开始
+// ============================================================
+
 document.addEventListener('DOMContentLoaded', function() {
     const generateBtn = document.getElementById('generate-btn');
     const outlineBtn = document.getElementById('outline-btn');
