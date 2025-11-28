@@ -92,23 +92,33 @@ class ImageProcessor:
 
         # 应用高斯模糊降噪
         blurred = cv2.GaussianBlur(gray, self.gaussian_kernel, 0)
-        
-        # Use Otsu's thresholding for better binary separation
-        _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        
+
+        # === 策略1: Otsu阈值（检测主体） ===
+        _, thresh_otsu = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
         # Invert the image if the background is darker than the object
-        # This helps if the remote is dark against a light background
-        if cv2.countNonZero(thresh) > thresh.size / 2:
-            thresh = cv2.bitwise_not(thresh)
-        
+        if cv2.countNonZero(thresh_otsu) > thresh_otsu.size / 2:
+            thresh_otsu = cv2.bitwise_not(thresh_otsu)
+
+        # === 策略2: Canny边缘检测（检测屏幕边框等细节） ===
+        # 降低阈值以捕获更多边缘细节
+        edges = cv2.Canny(blurred, 20, 80)
+
+        # 膨胀边缘以连接断开的线条
+        kernel_dilate = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        edges_dilated = cv2.dilate(edges, kernel_dilate, iterations=3)
+
+        # === 合并两种策略的结果 ===
+        combined = cv2.bitwise_or(thresh_otsu, edges_dilated)
+
         # 形态学操作清理图像
         kernel_close = cv2.getStructuringElement(cv2.MORPH_RECT, self.morph_close_kernel)
         kernel_open = cv2.getStructuringElement(cv2.MORPH_RECT, self.morph_open_kernel)
-        morph = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel_close)
+        morph = cv2.morphologyEx(combined, cv2.MORPH_CLOSE, kernel_close)
         morph = cv2.morphologyEx(morph, cv2.MORPH_OPEN, kernel_open)
-        
-        # Find contours - 使用 RETR_LIST 检测所有轮廓(包括内部按钮)
-        contours, _ = cv2.findContours(morph, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+
+        # Find contours - 使用 RETR_EXTERNAL 只检测外部轮廓（主体）
+        contours, _ = cv2.findContours(morph, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
         # 根据面积和形状筛选轮廓
         valid_contours = []
@@ -141,15 +151,15 @@ class ImageProcessor:
                 print(f"  Bounding rect: x={x}, y={y}, w={w}, h={h}")
                 print(f"  Aspect ratio: {aspect_ratio:.2f}, Extent: {extent:.2f}, Convexity: {convexity:.2f}")
                 
-                # Remote controls are typically:
-                # 1. Rectangular shape with aspect ratio between 0.1 and 6.0
-                # 2. Solid shape with extent > 0.3 (lowered to capture shadow areas)
-                # 3. Convex or nearly convex shape with convexity > 0.6 (lowered)
-                # 4. Large enough to be the main object
-                if (0.1 <= aspect_ratio <= 6.0 and 
-                    extent > 0.3 and 
-                    convexity > 0.6 and
-                    area > 3000):  # Minimum area lowered
+                # 产品通常满足：
+                # 1. 宽高比在合理范围内 (0.1 - 6.0)
+                # 2. 填充率较高 extent > 0.3
+                # 3. 基本凸性 convexity > 0.5 (降低以支持有凸起的产品如 Game Boy)
+                # 4. 面积足够大
+                if (0.1 <= aspect_ratio <= 6.0 and
+                    extent > 0.3 and
+                    convexity > 0.5 and  # 从 0.6 降低到 0.5
+                    area > 3000):
                     valid_contours.append({
                         'contour': contour,
                         'area': area,
@@ -160,17 +170,26 @@ class ImageProcessor:
                     })
                     print(f"  Added to valid contours")
         
-        # Return the contour that best matches a remote control
+        # Return the contour that best matches the main product
         if len(valid_contours) > 0:
-            # Score contours based on how well they match a remote control
-            # Ideal remote control: aspect ratio ~ 0.25 (vertical), extent ~ 0.8, convexity ~ 1.0
+            # Score contours based on area, extent, and convexity (通用产品检测，不限定形状)
+            # 优先选择面积最大、填充率高、凸度好的轮廓
+            img_area = self.original_image.shape[0] * self.original_image.shape[1]
+
             for contour_info in valid_contours:
-                aspect_score = max(0, 1.0 - abs(contour_info['aspect_ratio'] - 0.25) / 0.25)  # Target 0.25
-                extent_score = max(0, 1.0 - abs(contour_info['extent'] - 0.7) / 0.7)  # Target 0.7 (lowered)
-                convexity_score = contour_info['convexity']  # Higher is better
-                # Weighted score: aspect ratio (30%), extent (30%), convexity (40%)
-                contour_info['score'] = (0.3 * aspect_score + 0.3 * extent_score + 0.4 * convexity_score)
-            
+                # 面积分数：面积越大越好（相对于图片总面积）
+                area_ratio = contour_info['area'] / img_area
+                area_score = min(1.0, area_ratio * 5)  # 面积占20%以上得满分
+
+                # Extent分数：填充率越高越好（目标0.8左右）
+                extent_score = max(0, 1.0 - abs(contour_info['extent'] - 0.8) / 0.8)
+
+                # 凸度分数：越接近1越好
+                convexity_score = contour_info['convexity']
+
+                # 加权评分：面积(50%) + extent(25%) + 凸度(25%)
+                contour_info['score'] = (0.5 * area_score + 0.25 * extent_score + 0.25 * convexity_score)
+
             # Sort by score (highest first)
             valid_contours.sort(key=lambda x: x['score'], reverse=True)
             selected_contour = valid_contours[0]['contour']
